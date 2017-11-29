@@ -25,7 +25,7 @@ void kuz_set_encrypt_key(kuz_key_t *subkeys, const uint8_t key[32]);
 void kuz_set_decrypt_key(kuz_key_t *subkeys, const uint8_t key[32]);	
 
 // single-block ecp ops
-void kuz_encrypt_block(kuz_key_t *subkeys, void *x);
-void kuz_decrypt_block(kuz_key_t *subkeys, void *x);
+void kuz_encrypt_block(kuz_key_t *subkeys, void *out, void *in);
+void kuz_decrypt_block(kuz_key_t *subkeys, void *out, void *in);
 
 #endif

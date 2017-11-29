@@ -210,13 +210,13 @@ void kuz_set_decrypt_key(kuz_key_t *kuz, const uint8_t key[32])
 
 // encrypt a block - 8 bit way
 
-void kuz_encrypt_block(kuz_key_t *key, void *blk)
+void kuz_encrypt_block(kuz_key_t *key, void *out, void *in)
 {
 	int i, j;
 	w128_t x;
 
-	x.q[0] = ((uint64_t *) blk)[0];
-	x.q[1] = ((uint64_t *) blk)[1];
+	x.q[0] = ((uint64_t *) in)[0];
+	x.q[1] = ((uint64_t *) in)[1];
 
 	for (i = 0; i < 9; i++) {
 
@@ -227,19 +227,19 @@ void kuz_encrypt_block(kuz_key_t *key, void *blk)
 			x.b[j] = kuz_pi[x.b[j]];
 		kuz_l(&x);
 	}
-	((uint64_t *) blk)[0] = x.q[0] ^ key->k[9].q[0];
-	((uint64_t *) blk)[1] = x.q[1] ^ key->k[9].q[1];
+	((uint64_t *) out)[0] = x.q[0] ^ key->k[9].q[0];
+	((uint64_t *) out)[1] = x.q[1] ^ key->k[9].q[1];
 }
 
 // decrypt a block - 8 bit way
 
-void kuz_decrypt_block(kuz_key_t *key, void *blk)
+void kuz_decrypt_block(kuz_key_t *key, void *out, void *in)
 {
 	int i, j;
 	w128_t x;
 
-	x.q[0] = ((uint64_t *) blk)[0] ^ key->k[9].q[0];
-	x.q[1] = ((uint64_t *) blk)[1] ^ key->k[9].q[1];
+	x.q[0] = ((uint64_t *) in)[0] ^ key->k[9].q[0];
+	x.q[1] = ((uint64_t *) in)[1] ^ key->k[9].q[1];
 
 	for (i = 8; i >= 0; i--) {
 	
@@ -250,8 +250,8 @@ void kuz_decrypt_block(kuz_key_t *key, void *blk)
 		x.q[0] ^= key->k[i].q[0];	
 		x.q[1] ^= key->k[i].q[1];
 	}
-	((uint64_t *) blk)[0] = x.q[0];
-	((uint64_t *) blk)[1] = x.q[1];
+	((uint64_t *) out)[0] = x.q[0];
+	((uint64_t *) out)[1] = x.q[1];
 }
 
 
