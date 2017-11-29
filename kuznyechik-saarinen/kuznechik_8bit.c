@@ -7,6 +7,20 @@
 
 #include "kuznechik.h"
 
+#include <stdio.h>
+
+#ifndef BSWAP64
+#define BSWAP64(n) \
+	((n) >> 56) | \
+	(((n) << 40) & 0x00FF000000000000LL) |	\
+	(((n) << 24) & 0x0000FF0000000000LL) |	\
+	(((n) << 8)  & 0x000000FF00000000LL) |	\
+	(((n) >> 8)  & 0x00000000FF000000LL) |	\
+	(((n) >> 24) & 0x0000000000FF0000LL) |	\
+	(((n) >> 40) & 0x000000000000FF00LL) |	\
+	((n) << 56)
+#endif
+
 // The S-Box from section 5.1.1
 
 const uint8_t kuz_pi[0x100] = {
@@ -208,6 +222,11 @@ void kuz_set_decrypt_key(kuz_key_t *kuz, const uint8_t key[32])
 	kuz_set_encrypt_key(kuz, key);
 }
 
+static void dump_values(w128_t w, const char *color)
+{
+	fprintf(stderr, "\x1b[%sm%016llx %016llx\x1b[0m\n", color, BSWAP64(w.q[0]), BSWAP64(w.q[1]));
+}
+
 // encrypt a block - 8 bit way
 
 void kuz_encrypt_block(kuz_key_t *key, void *out, void *in)
@@ -218,17 +237,31 @@ void kuz_encrypt_block(kuz_key_t *key, void *out, void *in)
 	x.q[0] = ((uint64_t *) in)[0];
 	x.q[1] = ((uint64_t *) in)[1];
 
-	for (i = 0; i < 9; i++) {
+	dump_values(x, "33;1");
 
+	for (i = 0; i < 9; i++) {
+		dump_values(key->k[i], "36");
 		x.q[0] ^= key->k[i].q[0];
 		x.q[1] ^= key->k[i].q[1];
+		dump_values(x, "32");
 
 		for (j = 0; j < 16; j++)
 			x.b[j] = kuz_pi[x.b[j]];
+
+		dump_values(x, "32");
 		kuz_l(&x);
+		dump_values(x, "32");
 	}
-	((uint64_t *) out)[0] = x.q[0] ^ key->k[9].q[0];
-	((uint64_t *) out)[1] = x.q[1] ^ key->k[9].q[1];
+
+	dump_values(key->k[9], "36");
+
+	x.q[0] ^= key->k[9].q[0];
+	x.q[1] ^= key->k[9].q[1];
+
+	dump_values(x, "33;1");
+
+	((uint64_t *) out)[0] = x.q[0];
+	((uint64_t *) out)[1] = x.q[0];
 }
 
 // decrypt a block - 8 bit way
