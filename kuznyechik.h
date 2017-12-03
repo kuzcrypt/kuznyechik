@@ -17,6 +17,6 @@ void kuznyechik_encrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 void kuznyechik_decrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 			const unsigned char *in);
 
-void kuznyechik_wipe(struct kuznyechik_subkeys *subkeys);
+void kuznyechik_wipe_key(struct kuznyechik_subkeys *subkeys);
 
 #endif /* __KUZNYECHIK_H */
