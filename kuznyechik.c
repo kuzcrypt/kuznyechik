@@ -77,10 +77,65 @@ __m128i TSL[16][256];
 uint64_t TSL[16][256];
 #endif
 
+static int kuznyechik_initialized = 0;
+
+/******************************************************************************/
+
+static unsigned char gf_multtable_exp[256];
+static unsigned char gf_multtable_log[256];
+
+static unsigned char gf256_mul_fast(unsigned char a, unsigned char b)
+{
+	unsigned int c;
+
+	if (a == 0 || b == 0)
+		return 0;
+
+	c = gf_multtable_log[a] + gf_multtable_log[b];
+
+	return gf_multtable_exp[c % 255];
+}
+
+static unsigned char gf256_mul_slow(unsigned char a, unsigned char b)
+{
+	unsigned char c = 0;
+
+	while (b) {
+		if (b & 1)
+			c ^= a;
+		a = (a << 1) ^ (a & 0x80 ? 0xC3 : 0x00);
+		b >>= 1;
+	}
+	return c;
+}
+
+static void gf256_init_tables()
+{
+	unsigned int c = 1;
+	unsigned int i;
+
+	for (i = 0; i < 256; i++) {
+		gf_multtable_log[c] = i;
+		gf_multtable_exp[i] = c;
+		c = gf256_mul_slow(c, 0x03);
+	}
+}
+
+/******************************************************************************/
+
+static void kuznyechik_initialize()
+{
+	gf256_init_tables();
+
+
+	kuznyechik_initialized = 1;
+}
 
 int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 		       const unsigned char *key)
 {
+	if (kuznyechik_initialized == 0)
+		kuznyechik_initialize();
 
 	return 0;
 }
