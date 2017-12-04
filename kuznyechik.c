@@ -1,10 +1,16 @@
 #include <string.h>
 
 #if defined HAVE_SSE2 || defined HAVE_SSE4_1
+#ifndef HAVE_SSE
+#define HAVE_SSE
+#endif
+#endif
+
+#ifdef HAVE_SSE 
 #include <mmintrin.h>
 #include <emmintrin.h>
 #endif
-#if defined HAVE_SSE4_1
+#ifdef HAVE_SSE4_1
 #include <smmintrin.h>
 #endif
 
@@ -71,10 +77,14 @@ static const unsigned char kuznyechik_pi_inv[256] = {
 	0x00, 0x4c, 0xd7, 0x74
 };
 
-#if defined HAVE_SSE2 || defined HAVE_SSE4_1
-__m128i TSL[16][256];
+#ifdef HAVE_SSE
+__m128i T_SL[16][256];
+__m128i T_IL[16][256];
+__m128i T_ISL[16][256];
 #else
-uint64_t TSL[16][256];
+uint64_t T_SL[16][256];
+uint64_t T_IL[16][256];
+uint64_t T_ISL[16][256];
 #endif
 
 static int kuznyechik_initialized = 0;
@@ -123,19 +133,80 @@ static void gf256_init_tables()
 
 /******************************************************************************/
 
-static void kuznyechik_initialize()
+static void kuznyechik_linear(unsigned char *ptr)
 {
+	/* TODO */
+}
+
+static void kuznyechik_linear_inv(unsigned char *ptr)
+{
+	/* TODO */
+}
+
+static void kuznyechik_initialize_tables()
+{
+	unsigned int i, j;
+	unsigned char buf[16];
+
 	gf256_init_tables();
 
+	for (i = 0; i < 16; i++)
+		for (j = 0; j < 256; j++) {
+
+			/*
+			 * Pi' substitution and linear transformation
+			 */
+			((uint64_t *) buf)[0] = 0;
+			((uint64_t *) buf)[1] = 0;
+			buf[i] = kuznyechik_pi[j];
+			kuznyechik_linear(buf);
+			#ifdef HAVE_SSE
+			T_SL[i][j] = *((__m128i *) buf);
+			#else
+			T_SL[i][j] = *((uint64_t *) buf);
+			T_SL[i][j] = *((uint64_t *) buf);
+			#endif
+
+			/*
+			 * Inversed Pi' substitution and inversed linear
+			 * transformation
+			 */
+			((uint64_t *) buf)[0] = 0;
+			((uint64_t *) buf)[1] = 0;
+			buf[i] = kuznyechik_pi_inv[j];
+			kuznyechik_linear_inv(buf);
+			#ifdef HAVE_SSE
+			T_ISL[i][j] = *((__m128i *) buf);
+			#else
+			T_ISL[i][j] = *((uint64_t *) buf);
+			T_ISL[i][j] = *((uint64_t *) buf);
+			#endif
+
+			/*
+			 * Inversed linear transformation
+			 */
+			((uint64_t *) buf)[0] = 0;
+			((uint64_t *) buf)[1] = 0;
+			buf[i] = j;
+			kuznyechik_linear_inv(buf);
+			#ifdef HAVE_SSE
+			T_IL[i][j] = *((__m128i *) buf);
+			#else
+			T_IL[i][j] = *((uint64_t *) buf);
+			T_IL[i][j] = *((uint64_t *) buf);
+			#endif
+		}
 
 	kuznyechik_initialized = 1;
 }
+
+/******************************************************************************/
 
 int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 		       const unsigned char *key)
 {
 	if (kuznyechik_initialized == 0)
-		kuznyechik_initialize();
+		kuznyechik_initialize_tables();
 
 	return 0;
 }
