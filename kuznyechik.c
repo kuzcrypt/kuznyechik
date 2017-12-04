@@ -1,5 +1,13 @@
 #include <string.h>
 
+#if defined HAVE_SSE2 || defined HAVE_SSE4_1
+#include <mmintrin.h>
+#include <emmintrin.h>
+#endif
+#if defined HAVE_SSE4_1
+#include <smmintrin.h>
+#endif
+
 #include "kuznyechik.h"
 
 /*
@@ -62,6 +70,12 @@ static const unsigned char kuznyechik_pi_inv[256] = {
 	0x12, 0x1a, 0x48, 0x68, 0xf5, 0x81, 0x8b, 0xc7, 0xd6, 0x20, 0x0a, 0x08,
 	0x00, 0x4c, 0xd7, 0x74
 };
+
+#if defined HAVE_SSE2 || defined HAVE_SSE4_1
+__m128i TSL[16][256];
+#else
+uint64_t TSL[16][256];
+#endif
 
 
 int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
