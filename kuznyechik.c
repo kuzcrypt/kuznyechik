@@ -270,9 +270,38 @@ int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 	return 0;
 }
 
+#ifdef HAVE_SSE
+
+#define LOAD(out, in)				\
+	out = *((__m128i *) in);
+
+#define STORE(out, in)				\
+	*((__m128i *) out) = in;
+
+#else
+
+#define LOAD(out, in)				\
+	out[0] = ((uint64_t *) in)[0];		\
+	out[1] = ((uint64_t *) in)[1];
+
+#define STORE(out, in)				\
+	((uint64_t *) out)[0] = in[0];		\
+	((uint64_t *) out)[1] = in[1];
+
+#endif
+
+
 void kuznyechik_encrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 			const unsigned char *in)
 {
+	#ifdef HAVE_SSE
+	__m128i a;
+	__m128i *k = (__m128i *) subkeys->ek;
+	#endif
+
+	LOAD(a, in);
+
+	STORE(out, a);
 }
 
 void kuznyechik_decrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
