@@ -17,7 +17,7 @@
 #include "kuznyechik.h"
 
 /*
- * Pi' substitution table for nonlinear mapping as defined in section 4.1
+ * Pi' substitution table for nonlinear mapping as defined in section 4.1.1
  * of the reference document.
  *
  * Pi' = (Pi'(0), Pi'(1), ... , Pi'(255))
@@ -77,6 +77,15 @@ static const unsigned char kuznyechik_pi_inv[256] = {
 	0x00, 0x4c, 0xd7, 0x74
 };
 
+/*
+ * Vector of constants used in linear transformation as defined in section
+ * 4.1.2 of the reference document.
+ */
+static const unsigned char kuznyechik_linear_vector[16] = {
+	0x94, 0x20, 0x85, 0x10, 0xc2, 0xc0, 0x01, 0xfb, 0x01, 0xc0, 0xc2, 0x10,
+	0x85, 0x20, 0x94, 0x01
+};
+
 #ifdef HAVE_SSE
 __m128i T_SL[16][256];
 __m128i T_IL[16][256];
@@ -133,14 +142,34 @@ static void gf256_init_tables()
 
 /******************************************************************************/
 
-static void kuznyechik_linear(unsigned char *ptr)
+static void kuznyechik_linear(unsigned char *a)
 {
-	/* TODO */
+	unsigned char c;
+	int i, j;
+
+	for (i = 16; i; i--) {
+		c = a[15];
+		for (j = 14; j >= 0; j--) {
+			a[j + 1] = a[j];
+			c ^= gf256_mul_fast(a[j], kuznyechik_linear_vector[j]);
+		}
+		a[0] = c;
+	}
 }
 
-static void kuznyechik_linear_inv(unsigned char *ptr)
+static void kuznyechik_linear_inv(unsigned char *a)
 {
-	/* TODO */
+	unsigned char c;
+	int i, j;
+
+	for (i = 16; i; i--) {
+		c = a[0];
+		for (j = 0; j < 15; j++) {
+			a[j] = a[j + 1];
+			c ^= gf256_mul_fast(a[j], kuznyechik_linear_vector[j]);
+		}
+		a[15] = c;
+	}
 }
 
 static void kuznyechik_initialize_tables()
