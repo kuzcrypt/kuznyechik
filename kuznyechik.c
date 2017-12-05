@@ -9,9 +9,9 @@
 #ifdef HAVE_SSE 
 #include <mmintrin.h>
 #include <emmintrin.h>
-#endif
 #ifdef HAVE_SSE4_1
 #include <smmintrin.h>
+#endif
 #endif
 
 #include "kuznyechik.h"
@@ -87,13 +87,13 @@ static const unsigned char kuznyechik_linear_vector[16] = {
 };
 
 #ifdef HAVE_SSE
-__m128i T_SL[16][256];
-__m128i T_IL[16][256];
-__m128i T_ISL[16][256];
+ALIGN(16) __m128i T_SL[16][256];
+ALIGN(16) __m128i T_IL[16][256];
+ALIGN(16) __m128i T_ISL[16][256];
 #else
-uint64_t T_SL[16][256];
-uint64_t T_IL[16][256];
-uint64_t T_ISL[16][256];
+ALIGN(16) uint64_t T_SL[16][256][2];
+ALIGN(16) uint64_t T_IL[16][256][2];
+ALIGN(16) uint64_t T_ISL[16][256][2];
 #endif
 
 static int kuznyechik_initialized = 0;
@@ -192,8 +192,8 @@ static void kuznyechik_initialize_tables()
 			#ifdef HAVE_SSE
 			T_SL[i][j] = *((__m128i *) buf);
 			#else
-			T_SL[i][j] = *((uint64_t *) buf);
-			T_SL[i][j] = *((uint64_t *) buf);
+			T_SL[i][j][0] = ((uint64_t *) buf)[0];
+			T_SL[i][j][1] = ((uint64_t *) buf)[1];
 			#endif
 
 			/*
@@ -207,8 +207,8 @@ static void kuznyechik_initialize_tables()
 			#ifdef HAVE_SSE
 			T_ISL[i][j] = *((__m128i *) buf);
 			#else
-			T_ISL[i][j] = *((uint64_t *) buf);
-			T_ISL[i][j] = *((uint64_t *) buf);
+			T_ISL[i][j][0] = ((uint64_t *) buf)[0];
+			T_ISL[i][j][1] = ((uint64_t *) buf)[1];
 			#endif
 
 			/*
@@ -221,8 +221,8 @@ static void kuznyechik_initialize_tables()
 			#ifdef HAVE_SSE
 			T_IL[i][j] = *((__m128i *) buf);
 			#else
-			T_IL[i][j] = *((uint64_t *) buf);
-			T_IL[i][j] = *((uint64_t *) buf);
+			T_IL[i][j][0] = ((uint64_t *) buf)[0];
+			T_IL[i][j][1] = ((uint64_t *) buf)[1];
 			#endif
 		}
 
@@ -271,89 +271,102 @@ int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 }
 
 #ifdef HAVE_SSE
-
-#define LOAD(out, in)				\
+#define LOAD(out, in)							\
 	out = *((__m128i *) in);
-
-#define STORE(out, in)				\
+#define STORE(out, in)							\
 	*((__m128i *) out) = in;
-
 #else
-
-#define LOAD(out, in)				\
-	out[0] = ((uint64_t *) in)[0];		\
+#define LOAD(out, in)							\
+	out[0] = ((uint64_t *) in)[0];					\
 	out[1] = ((uint64_t *) in)[1];
-
-#define STORE(out, in)				\
-	((uint64_t *) out)[0] = in[0];		\
+#define STORE(out, in)							\
+	((uint64_t *) out)[0] = in[0];					\
 	((uint64_t *) out)[1] = in[1];
-
 #endif
 
-#if defined HAVE_SSE4_1
 /*
  * Applying lookup table - version optimized for SSE4.1
  */
-#define XLKT(T, a)							\
-	t = _mm_load_si128((void *) &T[0][_mm_extract_epi8(a, 0)]);	\
-	t = _mm_xor_si128(t, T[1][_mm_extract_epi8(a, 1)]);		\
-	t = _mm_xor_si128(t, T[2][_mm_extract_epi8(a, 2)]);		\
-	t = _mm_xor_si128(t, T[3][_mm_extract_epi8(a, 3)]);		\
-	t = _mm_xor_si128(t, T[4][_mm_extract_epi8(a, 4)]);		\
-	t = _mm_xor_si128(t, T[5][_mm_extract_epi8(a, 5)]);		\
-	t = _mm_xor_si128(t, T[6][_mm_extract_epi8(a, 6)]);		\
-	t = _mm_xor_si128(t, T[7][_mm_extract_epi8(a, 7)]);		\
-	t = _mm_xor_si128(t, T[8][_mm_extract_epi8(a, 8)]);		\
-	t = _mm_xor_si128(t, T[9][_mm_extract_epi8(a, 9)]);		\
-	t = _mm_xor_si128(t, T[10][_mm_extract_epi8(a, 10)]);		\
-	t = _mm_xor_si128(t, T[11][_mm_extract_epi8(a, 11)]);		\
-	t = _mm_xor_si128(t, T[12][_mm_extract_epi8(a, 12)]);		\
-	t = _mm_xor_si128(t, T[13][_mm_extract_epi8(a, 13)]);		\
-	t = _mm_xor_si128(t, T[14][_mm_extract_epi8(a, 14)]);		\
-	a = _mm_xor_si128(t, T[15][_mm_extract_epi8(a, 15)]);
-#elif defined HAVE_SSE2
+#if defined HAVE_SSE4_1
+#define XOR_LOOKUP(T, a, b)						\
+	b = _mm_load_si128((void *) &T[0][_mm_extract_epi8(a, 0)]);	\
+	b = _mm_xor_si128(b, T[1][_mm_extract_epi8(a, 1)]);		\
+	b = _mm_xor_si128(b, T[2][_mm_extract_epi8(a, 2)]);		\
+	b = _mm_xor_si128(b, T[3][_mm_extract_epi8(a, 3)]);		\
+	b = _mm_xor_si128(b, T[4][_mm_extract_epi8(a, 4)]);		\
+	b = _mm_xor_si128(b, T[5][_mm_extract_epi8(a, 5)]);		\
+	b = _mm_xor_si128(b, T[6][_mm_extract_epi8(a, 6)]);		\
+	b = _mm_xor_si128(b, T[7][_mm_extract_epi8(a, 7)]);		\
+	b = _mm_xor_si128(b, T[8][_mm_extract_epi8(a, 8)]);		\
+	b = _mm_xor_si128(b, T[9][_mm_extract_epi8(a, 9)]);		\
+	b = _mm_xor_si128(b, T[10][_mm_extract_epi8(a, 10)]);		\
+	b = _mm_xor_si128(b, T[11][_mm_extract_epi8(a, 11)]);		\
+	b = _mm_xor_si128(b, T[12][_mm_extract_epi8(a, 12)]);		\
+	b = _mm_xor_si128(b, T[13][_mm_extract_epi8(a, 13)]);		\
+	b = _mm_xor_si128(b, T[14][_mm_extract_epi8(a, 14)]);		\
+	b = _mm_xor_si128(b, T[15][_mm_extract_epi8(a, 15)]);
 /*
  * Applying lookup table - version optimized for SSE2
  */
-#define XLKT(T, a)							\
+#elif defined HAVE_SSE2
+#define XOR_LOOKUP(T, a, b)						\
 	addr1 = _mm_and_si128(*(__m128i *) sse2_bitmask, a);		\
 	addr2 = _mm_andnot_si128(*(__m128i *) sse2_bitmask, a);		\
 	addr1 = _mm_srli_epi16(addr1, 8);				\
 									\
-	t = T[1][_mm_extract_epi16(addr1, 0)];				\
-	t = _mm_xor_si128(t, T[0][_mm_extract_epi16(addr2, 0)]);	\
-	t = _mm_xor_si128(t, T[3][_mm_extract_epi16(addr1, 1)]);	\
-	t = _mm_xor_si128(t, T[2][_mm_extract_epi16(addr2, 1)]);	\
-	t = _mm_xor_si128(t, T[5][_mm_extract_epi16(addr1, 2)]);	\
-	t = _mm_xor_si128(t, T[4][_mm_extract_epi16(addr2, 2)]);	\
-	t = _mm_xor_si128(t, T[7][_mm_extract_epi16(addr1, 3)]);	\
-	t = _mm_xor_si128(t, T[6][_mm_extract_epi16(addr2, 3)]);	\
-	t = _mm_xor_si128(t, T[9][_mm_extract_epi16(addr1, 4)]);	\
-	t = _mm_xor_si128(t, T[8][_mm_extract_epi16(addr2, 4)]);	\
-	t = _mm_xor_si128(t, T[11][_mm_extract_epi16(addr1, 5)]);	\
-	t = _mm_xor_si128(t, T[10][_mm_extract_epi16(addr2, 5)]);	\
-	t = _mm_xor_si128(t, T[13][_mm_extract_epi16(addr1, 6)]);	\
-	t = _mm_xor_si128(t, T[12][_mm_extract_epi16(addr2, 6)]);	\
-	t = _mm_xor_si128(t, T[15][_mm_extract_epi16(addr1, 7)]);	\
-	a = _mm_xor_si128(t, T[14][_mm_extract_epi16(addr2, 7)]);
+	b = T[1][_mm_extract_epi16(addr1, 0)];				\
+	b = _mm_xor_si128(b, T[0][_mm_extract_epi16(addr2, 0)]);	\
+	b = _mm_xor_si128(b, T[3][_mm_extract_epi16(addr1, 1)]);	\
+	b = _mm_xor_si128(b, T[2][_mm_extract_epi16(addr2, 1)]);	\
+	b = _mm_xor_si128(b, T[5][_mm_extract_epi16(addr1, 2)]);	\
+	b = _mm_xor_si128(b, T[4][_mm_extract_epi16(addr2, 2)]);	\
+	b = _mm_xor_si128(b, T[7][_mm_extract_epi16(addr1, 3)]);	\
+	b = _mm_xor_si128(b, T[6][_mm_extract_epi16(addr2, 3)]);	\
+	b = _mm_xor_si128(b, T[9][_mm_extract_epi16(addr1, 4)]);	\
+	b = _mm_xor_si128(b, T[8][_mm_extract_epi16(addr2, 4)]);	\
+	b = _mm_xor_si128(b, T[11][_mm_extract_epi16(addr1, 5)]);	\
+	b = _mm_xor_si128(b, T[10][_mm_extract_epi16(addr2, 5)]);	\
+	b = _mm_xor_si128(b, T[13][_mm_extract_epi16(addr1, 6)]);	\
+	b = _mm_xor_si128(b, T[12][_mm_extract_epi16(addr2, 6)]);	\
+	b = _mm_xor_si128(b, T[15][_mm_extract_epi16(addr1, 7)]);	\
+	b = _mm_xor_si128(b, T[14][_mm_extract_epi16(addr2, 7)]);
+/*
+ * Applying lookup table - portable version
+ */
+#else
+#define XOR_LOOKUP_HALF(T, a, b, i)					\
+	b[i] =  T[ 0][((uint8_t *) &a)[0]][i];				\
+	b[i] ^= T[ 1][((uint8_t *) &a)[1]][i];				\
+	b[i] ^=	T[ 2][((uint8_t *) &a)[2]][i];				\
+	b[i] ^= T[ 3][((uint8_t *) &a)[3]][i];				\
+	b[i] ^= T[ 4][((uint8_t *) &a)[4]][i];				\
+	b[i] ^= T[ 5][((uint8_t *) &a)[5]][i];				\
+	b[i] ^= T[ 6][((uint8_t *) &a)[6]][i];				\
+	b[i] ^= T[ 7][((uint8_t *) &a)[7]][i];				\
+	b[i] ^= T[ 8][((uint8_t *) &a)[8]][i];				\
+	b[i] ^= T[ 9][((uint8_t *) &a)[9]][i];				\
+	b[i] ^= T[10][((uint8_t *) &a)[10]][i];				\
+	b[i] ^= T[11][((uint8_t *) &a)[11]][i];				\
+	b[i] ^= T[12][((uint8_t *) &a)[12]][i];				\
+	b[i] ^= T[13][((uint8_t *) &a)[13]][i];				\
+	b[i] ^= T[14][((uint8_t *) &a)[14]][i];				\
+	b[i] ^= T[15][((uint8_t *) &a)[15]][i]
+#define XOR_LOOKUP(T, a, b)						\
+	XOR_LOOKUP_HALF(T, a, b, 0);					\
+	XOR_LOOKUP_HALF(T, a, b, 1)
 #endif
 
-
 #ifdef HAVE_SSE
-
 #define X(a, k)								\
 	a = _mm_xor_si128(a, *((__m128i *) &k))
-
 #else
-
 #define X(a, k)								\
 	a[0] ^= k[0];							\
 	a[1] ^= k[1]
-
 #endif
 
-#define SL(a)								\
-	XLKT(T_SL, a)
+#define SL(a, b)							\
+	XOR_LOOKUP(T_SL, a, b)
 
 #if defined HAVE_SSE2 && !defined HAVE_SSE4_1
 ALIGN(16) const unsigned char sse2_bitmask[16] = {
@@ -366,37 +379,37 @@ void kuznyechik_encrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 			const unsigned char *in)
 {
 	#ifdef HAVE_SSE
-	__m128i a, t;
+	__m128i a, b;
 	#ifndef HAVE_SSE4_1
 	__m128i addr1, addr2;
 	#endif
 	#else
-	uint64_t a[2];
+	uint64_t a[2], b[2];
 	#endif
 
 	LOAD(a, in);
 
 	X(a, subkeys->ek[0]);
-	SL(a);
-	X(a, subkeys->ek[1]);
-	SL(a);
+	SL(a, b);
+	X(b, subkeys->ek[1]);
+	SL(b, a);
 	X(a, subkeys->ek[2]);
-	SL(a);
-	X(a, subkeys->ek[3]);
-	SL(a);
+	SL(a, b);
+	X(b, subkeys->ek[3]);
+	SL(b, a);
 	X(a, subkeys->ek[4]);
-	SL(a);
-	X(a, subkeys->ek[5]);
-	SL(a);
+	SL(a, b);
+	X(b, subkeys->ek[5]);
+	SL(b, a);
 	X(a, subkeys->ek[6]);
-	SL(a);
-	X(a, subkeys->ek[7]);
-	SL(a);
+	SL(a, b);
+	X(b, subkeys->ek[7]);
+	SL(b, a);
 	X(a, subkeys->ek[8]);
-	SL(a);
-	X(a, subkeys->ek[9]);
+	SL(a, b);
+	X(b, subkeys->ek[9]);
 
-	STORE(out, a);
+	STORE(out, b);
 }
 
 void kuznyechik_decrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
