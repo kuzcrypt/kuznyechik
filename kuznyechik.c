@@ -290,16 +290,77 @@ int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 
 #endif
 
+/*
+ * Applying lookup table - version optimized for SSE4.1
+ */
+#if defined HAVE_SSE4_1
+#define XLKT(T, a)							\
+	t = _mm_load_si128((void *) &T[0][_mm_extract_epi8(a, 0)]);	\
+	t = _mm_xor_si128(t, T[1][_mm_extract_epi8(a, 1)]);		\
+	t = _mm_xor_si128(t, T[2][_mm_extract_epi8(a, 2)]);		\
+	t = _mm_xor_si128(t, T[3][_mm_extract_epi8(a, 3)]);		\
+	t = _mm_xor_si128(t, T[4][_mm_extract_epi8(a, 4)]);		\
+	t = _mm_xor_si128(t, T[5][_mm_extract_epi8(a, 5)]);		\
+	t = _mm_xor_si128(t, T[6][_mm_extract_epi8(a, 6)]);		\
+	t = _mm_xor_si128(t, T[7][_mm_extract_epi8(a, 7)]);		\
+	t = _mm_xor_si128(t, T[8][_mm_extract_epi8(a, 8)]);		\
+	t = _mm_xor_si128(t, T[9][_mm_extract_epi8(a, 9)]);		\
+	t = _mm_xor_si128(t, T[10][_mm_extract_epi8(a, 10)]);		\
+	t = _mm_xor_si128(t, T[11][_mm_extract_epi8(a, 11)]);		\
+	t = _mm_xor_si128(t, T[12][_mm_extract_epi8(a, 12)]);		\
+	t = _mm_xor_si128(t, T[13][_mm_extract_epi8(a, 13)]);		\
+	t = _mm_xor_si128(t, T[14][_mm_extract_epi8(a, 14)]);		\
+	a = _mm_xor_si128(t, T[15][_mm_extract_epi8(a, 15)]);
+#endif
+
+
+#ifdef HAVE_SSE
+
+#define X(a, k)								\
+	a = _mm_xor_si128(a, *((__m128i *) &k))
+
+#else
+
+#define X(a, k)								\
+	a[0] ^= k[0];							\
+	a[1] ^= k[1]
+
+#endif
+
+#define SL(a)								\
+	XLKT(T_SL, a)
+
 
 void kuznyechik_encrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 			const unsigned char *in)
 {
 	#ifdef HAVE_SSE
-	__m128i a;
-	__m128i *k = (__m128i *) subkeys->ek;
+	__m128i a, t;
+	#else
+	uint64_t a[2];
 	#endif
 
 	LOAD(a, in);
+
+	X(a, subkeys->ek[0]);
+	SL(a);
+	X(a, subkeys->ek[1]);
+	SL(a);
+	X(a, subkeys->ek[2]);
+	SL(a);
+	X(a, subkeys->ek[3]);
+	SL(a);
+	X(a, subkeys->ek[4]);
+	SL(a);
+	X(a, subkeys->ek[5]);
+	SL(a);
+	X(a, subkeys->ek[6]);
+	SL(a);
+	X(a, subkeys->ek[7]);
+	SL(a);
+	X(a, subkeys->ek[8]);
+	SL(a);
+	X(a, subkeys->ek[9]);
 
 	STORE(out, a);
 }
