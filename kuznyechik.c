@@ -290,10 +290,10 @@ int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 
 #endif
 
+#if defined HAVE_SSE4_1
 /*
  * Applying lookup table - version optimized for SSE4.1
  */
-#if defined HAVE_SSE4_1
 #define XLKT(T, a)							\
 	t = _mm_load_si128((void *) &T[0][_mm_extract_epi8(a, 0)]);	\
 	t = _mm_xor_si128(t, T[1][_mm_extract_epi8(a, 1)]);		\
@@ -311,6 +311,31 @@ int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 	t = _mm_xor_si128(t, T[13][_mm_extract_epi8(a, 13)]);		\
 	t = _mm_xor_si128(t, T[14][_mm_extract_epi8(a, 14)]);		\
 	a = _mm_xor_si128(t, T[15][_mm_extract_epi8(a, 15)]);
+#elif defined HAVE_SSE2
+/*
+ * Applying lookup table - version optimized for SSE2
+ */
+#define XLKT(T, a)							\
+	addr1 = _mm_and_si128(*(__m128i *) sse2_bitmask, a);		\
+	addr2 = _mm_andnot_si128(*(__m128i *) sse2_bitmask, a);		\
+	addr1 = _mm_srli_epi16(addr1, 8);				\
+									\
+	t = T[1][_mm_extract_epi16(addr1, 0)];				\
+	t = _mm_xor_si128(t, T[0][_mm_extract_epi16(addr2, 0)]);	\
+	t = _mm_xor_si128(t, T[3][_mm_extract_epi16(addr1, 1)]);	\
+	t = _mm_xor_si128(t, T[2][_mm_extract_epi16(addr2, 1)]);	\
+	t = _mm_xor_si128(t, T[5][_mm_extract_epi16(addr1, 2)]);	\
+	t = _mm_xor_si128(t, T[4][_mm_extract_epi16(addr2, 2)]);	\
+	t = _mm_xor_si128(t, T[7][_mm_extract_epi16(addr1, 3)]);	\
+	t = _mm_xor_si128(t, T[6][_mm_extract_epi16(addr2, 3)]);	\
+	t = _mm_xor_si128(t, T[9][_mm_extract_epi16(addr1, 4)]);	\
+	t = _mm_xor_si128(t, T[8][_mm_extract_epi16(addr2, 4)]);	\
+	t = _mm_xor_si128(t, T[11][_mm_extract_epi16(addr1, 5)]);	\
+	t = _mm_xor_si128(t, T[10][_mm_extract_epi16(addr2, 5)]);	\
+	t = _mm_xor_si128(t, T[13][_mm_extract_epi16(addr1, 6)]);	\
+	t = _mm_xor_si128(t, T[12][_mm_extract_epi16(addr2, 6)]);	\
+	t = _mm_xor_si128(t, T[15][_mm_extract_epi16(addr1, 7)]);	\
+	a = _mm_xor_si128(t, T[14][_mm_extract_epi16(addr2, 7)]);
 #endif
 
 
@@ -330,12 +355,21 @@ int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 #define SL(a)								\
 	XLKT(T_SL, a)
 
+#if defined HAVE_SSE2 && !defined HAVE_SSE4_1
+ALIGN(16) const unsigned char sse2_bitmask[16] = {
+	0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff,
+	0x00, 0xff, 0x00, 0xff,
+};
+#endif
 
 void kuznyechik_encrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 			const unsigned char *in)
 {
 	#ifdef HAVE_SSE
 	__m128i a, t;
+	#ifndef HAVE_SSE4_1
+	__m128i addr1, addr2;
+	#endif
 	#else
 	uint64_t a[2];
 	#endif

@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifndef ALIGN
+#define ALIGN(n)	__attribute__((aligned(n)))
+#endif
+
 struct kuznyechik_subkeys {
 	uint64_t ek[10][2];
 	uint64_t dk[10][2];
