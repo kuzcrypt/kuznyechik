@@ -1,5 +1,3 @@
-#include <string.h>
-
 #if defined HAVE_SSE2 || defined HAVE_SSE4_1
 #ifndef HAVE_SSE
 #define HAVE_SSE
@@ -419,5 +417,12 @@ void kuznyechik_decrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 
 void kuznyechik_wipe_key(struct kuznyechik_subkeys *subkeys)
 {
-	memset(subkeys, 0, sizeof(struct kuznyechik_subkeys));
+	int i;
+
+	for (i = 9; i >= 0; i--) {
+		subkeys->ek[i][0] = 0x0000000000000000;
+		subkeys->ek[i][1] = 0x0000000000000000;
+		subkeys->dk[i][0] = 0x0000000000000000;
+		subkeys->dk[i][1] = 0x0000000000000000;
+	}
 }
