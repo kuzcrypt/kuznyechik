@@ -290,44 +290,12 @@ static void kuznyechik_initialize_tables()
 
 /******************************************************************************/
 
-int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
-		       const unsigned char *key)
-{
-	if (kuznyechik_initialized == 0)
-		kuznyechik_initialize_tables();
-
-	/* FIXME - hardcoded testing key */
-	subkeys->ek[0][1] = 0x7766554433221100;
-	subkeys->ek[0][0] = 0xffeeddccbbaa9988;
-	subkeys->ek[1][1] = 0xefcdab8967452301;
-	subkeys->ek[1][0] = 0x1032547698badcfe;
-	subkeys->ek[2][1] = 0x448cc78cef6a8d22;
-	subkeys->ek[2][0] = 0x43436915534831db;
-	subkeys->ek[3][1] = 0x04fd9f0ac4adeb15;
-	subkeys->ek[3][0] = 0x68eccfe9d853453d;
-	subkeys->ek[4][1] = 0xacf129f44692e5d3;
-	subkeys->ek[4][0] = 0x285e4ac468646457;
-	subkeys->ek[5][1] = 0x1b58da3428e832b5;
-	subkeys->ek[5][0] = 0x32645c16359407bd;
-	subkeys->ek[6][1] = 0xb198005a26275770;
-	subkeys->ek[6][0] = 0xde45877e7540e651;
-	subkeys->ek[7][1] = 0x84f98622a2912ad7;
-	subkeys->ek[7][0] = 0x3edd9f7b0125795a;
-	subkeys->ek[8][1] = 0x17e5b6cd732ff3a5;
-	subkeys->ek[8][0] = 0x2331c77853e244bb;
-	subkeys->ek[9][1] = 0x43404a8ea8ba5d75;
-	subkeys->ek[9][0] = 0x5bf4bc1674dde972;
-
-	unsigned int i;
-	for (i = 0; i < 10; i++) {
-		subkeys->dk[i][0] = subkeys->ek[i][0];
-		subkeys->dk[i][1] = subkeys->ek[i][1];
-		if (i)
-			kuznyechik_linear_inv((unsigned char *) &subkeys->dk[i]);
-	}
-
-	return 0;
-}
+#if defined HAVE_SSE2 && !defined HAVE_SSE4_1
+ALIGN(16) const unsigned char sse2_bitmask[16] = {
+	0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff,
+	0x00, 0xff, 0x00, 0xff,
+};
+#endif
 
 /*
  * Platform-dependent loading a working state from an array of bytes and
@@ -442,12 +410,46 @@ int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 #define SL(a, b)							\
 	XOR_LOOKUP(T_SL, a, b)
 
-#if defined HAVE_SSE2 && !defined HAVE_SSE4_1
-ALIGN(16) const unsigned char sse2_bitmask[16] = {
-	0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff,
-	0x00, 0xff, 0x00, 0xff,
-};
-#endif
+/******************************************************************************/
+
+int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
+		       const unsigned char *key)
+{
+	if (kuznyechik_initialized == 0)
+		kuznyechik_initialize_tables();
+
+	/* FIXME - hardcoded testing key */
+	subkeys->ek[0][1] = 0x7766554433221100;
+	subkeys->ek[0][0] = 0xffeeddccbbaa9988;
+	subkeys->ek[1][1] = 0xefcdab8967452301;
+	subkeys->ek[1][0] = 0x1032547698badcfe;
+	subkeys->ek[2][1] = 0x448cc78cef6a8d22;
+	subkeys->ek[2][0] = 0x43436915534831db;
+	subkeys->ek[3][1] = 0x04fd9f0ac4adeb15;
+	subkeys->ek[3][0] = 0x68eccfe9d853453d;
+	subkeys->ek[4][1] = 0xacf129f44692e5d3;
+	subkeys->ek[4][0] = 0x285e4ac468646457;
+	subkeys->ek[5][1] = 0x1b58da3428e832b5;
+	subkeys->ek[5][0] = 0x32645c16359407bd;
+	subkeys->ek[6][1] = 0xb198005a26275770;
+	subkeys->ek[6][0] = 0xde45877e7540e651;
+	subkeys->ek[7][1] = 0x84f98622a2912ad7;
+	subkeys->ek[7][0] = 0x3edd9f7b0125795a;
+	subkeys->ek[8][1] = 0x17e5b6cd732ff3a5;
+	subkeys->ek[8][0] = 0x2331c77853e244bb;
+	subkeys->ek[9][1] = 0x43404a8ea8ba5d75;
+	subkeys->ek[9][0] = 0x5bf4bc1674dde972;
+
+	unsigned int i;
+	for (i = 0; i < 10; i++) {
+		subkeys->dk[i][0] = subkeys->ek[i][0];
+		subkeys->dk[i][1] = subkeys->ek[i][1];
+		if (i)
+			kuznyechik_linear_inv((unsigned char *) &subkeys->dk[i]);
+	}
+
+	return 0;
+}
 
 void kuznyechik_encrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 			const unsigned char *in)
@@ -489,6 +491,16 @@ void kuznyechik_encrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 void kuznyechik_decrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 			const unsigned char *in)
 {
+	#ifdef HAVE_SSE
+	__m128i a, b;
+	#ifndef HAVE_SSE4_1
+	__m128i addr1, addr2;
+	#endif
+	#else
+	uint64_t a[2], b[2];
+	#endif
+
+	LOAD(a, in);
 }
 
 void kuznyechik_wipe_key(struct kuznyechik_subkeys *subkeys)
