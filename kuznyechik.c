@@ -34,6 +34,26 @@
  * and originally written by "kerukuro":
  *
  *     https://github.com/veracrypt/veracrypt
+ *
+ *
+ * Optimization:
+ *
+ * This code contains three distinct implementations at once. You can
+ * determine what version the code will be compiled into by defining macros
+ * `HAVE_SSE2` and `HAVE_SSE4_1`. All versions, however, are optimized by
+ * using large precomputed lookup tables.
+ *
+ * a. If none of these macros is defined, a portable version working with
+ * 64-bit integers will be used.
+ *
+ * b. In the case that your CPU supports SSE2 instructions, you can enable
+ * SSE2 optimization by defining `HAVE_SSE2`. It increases performance
+ * dramatically (almost twice). But, for some limitations of SSE2 instruction
+ * set, there is still a room for additional speedup.
+ *
+ * c. On CPUs with SSE4.1, number of instructions needed to complete
+ * encryption of one block of data can be reduced even more, so with macro
+ * `HAVE_SSE4_1` having enabled, speedup will be maximal.
  */
 
 #if defined HAVE_SSE2 || defined HAVE_SSE4_1
