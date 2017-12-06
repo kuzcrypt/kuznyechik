@@ -63,10 +63,10 @@
 #endif
 
 #ifdef HAVE_SSE 
-#include <mmintrin.h>
-#include <emmintrin.h>
+#include <mmintrin.h>	/* MMX intrinsics */
+#include <emmintrin.h>	/* SSE2 intrinsics */
 #ifdef HAVE_SSE4_1
-#include <smmintrin.h>
+#include <smmintrin.h>	/* SSE4.1 intrinsics */
 #endif
 #endif
 
@@ -228,6 +228,9 @@ static void kuznyechik_linear_inv(unsigned char *a)
 	}
 }
 
+/*
+ * This function initializes lookup tables.
+ */
 static void kuznyechik_initialize_tables()
 {
 	unsigned int i, j;
@@ -326,6 +329,12 @@ int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 	return 0;
 }
 
+/*
+ * Platform-dependent loading a working state from an array of bytes and
+ * storage of output data in an output buffer. If SSE optimization enabled,
+ * data are loaded into a single 128-bit vector, when not, vector of two
+ * 64-bit integers is used instead.
+ */
 #ifdef HAVE_SSE
 #define LOAD(out, in)							\
 	out = *((__m128i *) in);
@@ -341,7 +350,10 @@ int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 #endif
 
 /*
- * Applying lookup table - version optimized for SSE4.1
+ * Applying a lookup table - version optimized for SSE4.1. This version
+ * is able to extract 8-bit values from a temporary vector directly for
+ * SSE4.1 does have instruction for that purpose. It allows us to have
+ * more control over the final machine code.
  */
 #if defined HAVE_SSE4_1
 #define XOR_LOOKUP(T, a, b)						\
@@ -361,15 +373,19 @@ int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 	b = _mm_xor_si128(b, T[13][_mm_extract_epi8(a, 13)]);		\
 	b = _mm_xor_si128(b, T[14][_mm_extract_epi8(a, 14)]);		\
 	b = _mm_xor_si128(b, T[15][_mm_extract_epi8(a, 15)]);
+
 /*
- * Applying lookup table - version optimized for SSE2
+ * Applying a lookup table - version optimized for SSE2. There things
+ * are a little bit tricky. SSE2 is only able to extract 16-bit values
+ * from a vector. For that reason, we have to split our vector and
+ * obtain the values by applying a bit-mask and shift to right (for
+ * even values).
  */
 #elif defined HAVE_SSE2
 #define XOR_LOOKUP(T, a, b)						\
 	addr1 = _mm_and_si128(*(__m128i *) sse2_bitmask, a);		\
 	addr2 = _mm_andnot_si128(*(__m128i *) sse2_bitmask, a);		\
 	addr1 = _mm_srli_epi16(addr1, 8);				\
-									\
 	b = T[1][_mm_extract_epi16(addr1, 0)];				\
 	b = _mm_xor_si128(b, T[0][_mm_extract_epi16(addr2, 0)]);	\
 	b = _mm_xor_si128(b, T[3][_mm_extract_epi16(addr1, 1)]);	\
@@ -386,8 +402,10 @@ int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 	b = _mm_xor_si128(b, T[12][_mm_extract_epi16(addr2, 6)]);	\
 	b = _mm_xor_si128(b, T[15][_mm_extract_epi16(addr1, 7)]);	\
 	b = _mm_xor_si128(b, T[14][_mm_extract_epi16(addr2, 7)]);
+
 /*
- * Applying lookup table - portable version
+ * Applying a lookup table - portable version. If the target machine
+ * does not have any SSE instruction set, we use this fallback code.
  */
 #else
 #define XOR_LOOKUP_HALF(T, a, b, i)					\
