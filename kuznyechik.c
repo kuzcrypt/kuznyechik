@@ -12,6 +12,30 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * There are many implementations of Kuznyechik cipher on the Internet.
+ * We have tested most of these and compared their performance as well
+ * as some other important attributes (SIMD optimization, readability,
+ * etc.). With this knowledge having gained, we decided to implement
+ * a new implementation combining two major attributes: maximal speed
+ * and good readability.
+ *
+ * This version is mostly based on Dr. Markku-Juhani O. Saarinen's code
+ * that is available at:
+ *
+ *     https://github.com/mjosaarinen/kuznechik
+ *
+ * However, his implementation did not contain an optimized native 64-bit
+ * version without SIMD optimizations. Since we wanted to have a portable
+ * implementation that could be run even on CPUs without SSE instructions,
+ * we needed to add it.
+ *
+ * The native 64-bit version has been inspired by code used in VeraCrypt,
+ * and originally written by "kerukuro":
+ *
+ *     https://github.com/veracrypt/veracrypt
+ */
+
 #if defined HAVE_SSE2 || defined HAVE_SSE4_1
 #ifndef HAVE_SSE
 #define HAVE_SSE

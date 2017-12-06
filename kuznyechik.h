@@ -12,6 +12,20 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * Most basic example usage:
+ *    struct kuznyechik_subkeys subkeys;
+ *    kuznyechik_set_key(&subkeys, key);
+ *    kuznyechik_encrypt(&subkeys, ciphertext, plaintext);
+ *    kuznyechik_decrypt(&subkeys, plaintext, ciphertext);
+ *    kuznyechik_wipe_key(&subkeys);
+ *
+ * Test vectors (from the reference document):
+ *    K = 8899aabbccddeeff0011223344556677fedcba98765432100123456789abcdef
+ *    P = 1122334455667700ffeeddccbbaa9988
+ *    C = 7f679d90bebc24305a468d42b9d4edcd
+ */
+
 #ifndef __KUZNYECHIK_H
 #define __KUZNYECHIK_H
 
