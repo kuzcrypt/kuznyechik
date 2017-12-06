@@ -29,6 +29,10 @@
 #ifndef __KUZNYECHIK_H
 #define __KUZNYECHIK_H
 
+#if defined (__cplusplus)
+extern "C" {
+#endif
+
 #include <stdint.h>
 
 #ifndef ALIGN
@@ -50,5 +54,9 @@ void kuznyechik_decrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 			const unsigned char *in);
 
 void kuznyechik_wipe_key(struct kuznyechik_subkeys *subkeys);
+
+#if defined (__cplusplus)
+}
+#endif
 
 #endif /* __KUZNYECHIK_H */
