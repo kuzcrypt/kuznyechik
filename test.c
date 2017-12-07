@@ -1,0 +1,53 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+#include "kuznyechik.h"
+
+ALIGN(16) static const unsigned char key[32] = {
+	0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+	0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+	0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32, 0x10,
+	0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef
+};
+
+ALIGN(16) static const unsigned char plaintext[16] = {
+	0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x00,
+	0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88
+};
+
+ALIGN(16) static const unsigned char ciphertext[16] = {
+	0x7f, 0x67, 0x9d, 0x90, 0xbe, 0xbc, 0x24, 0x30,
+	0x5a, 0x46, 0x8d, 0x42, 0xb9, 0xd4, 0xed, 0xcd
+};
+
+static void print_block(const unsigned char *blk, const char *prefix)
+{
+	unsigned int i;
+
+	printf("%s ", prefix);
+	for (i = 0; i < 16; i++)
+		printf("%02x", blk[i]);
+	putchar('\n');
+}
+
+int main(int argc, const char **argv)
+{
+	ALIGN(16) unsigned char buffer[16];
+	struct kuznyechik_subkeys subkeys;
+
+	kuznyechik_set_key(&subkeys, key);
+
+	print_block(plaintext, "P:");
+
+	kuznyechik_encrypt(&subkeys, buffer, plaintext);
+	print_block(buffer, "C:");
+
+	kuznyechik_decrypt(&subkeys, buffer, buffer);
+	print_block(buffer, "P:");
+
+	/* Prevent leaks of encryption key */
+	kuznyechik_wipe_key(&subkeys);
+
+	return 0;
+}
