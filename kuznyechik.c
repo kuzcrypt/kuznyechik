@@ -410,6 +410,33 @@ ALIGN(16) const unsigned char sse2_bitmask[16] = {
 #define SL(a, b)							\
 	XOR_LOOKUP(T_SL, a, b)
 
+#define IL(a, b)							\
+	XOR_LOOKUP(T_IL, a, b)
+
+#define ISL(a, b)							\
+	XOR_LOOKUP(T_ISL, a, b)
+
+#define IS(a) {								\
+	unsigned char *c = ((unsigned char *) &a);			\
+	c[0] = kuznyechik_pi_inv[c[0]];					\
+	c[1] = kuznyechik_pi_inv[c[1]];					\
+	c[2] = kuznyechik_pi_inv[c[2]];					\
+	c[3] = kuznyechik_pi_inv[c[3]];					\
+	c[4] = kuznyechik_pi_inv[c[4]];					\
+	c[5] = kuznyechik_pi_inv[c[5]];					\
+	c[6] = kuznyechik_pi_inv[c[6]];					\
+	c[7] = kuznyechik_pi_inv[c[7]];					\
+	c[8] = kuznyechik_pi_inv[c[8]];					\
+	c[9] = kuznyechik_pi_inv[c[9]];					\
+	c[10] = kuznyechik_pi_inv[c[10]];				\
+	c[11] = kuznyechik_pi_inv[c[11]];				\
+	c[12] = kuznyechik_pi_inv[c[12]];				\
+	c[13] = kuznyechik_pi_inv[c[13]];				\
+	c[14] = kuznyechik_pi_inv[c[14]];				\
+	c[15] = kuznyechik_pi_inv[c[15]];				\
+}
+
+
 /******************************************************************************/
 
 int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
@@ -501,6 +528,29 @@ void kuznyechik_decrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 	#endif
 
 	LOAD(a, in);
+
+	IL(a, b);
+	X(b, subkeys->dk[9]);
+	ISL(b, a);
+	X(a, subkeys->dk[8]);
+	ISL(a, b);
+	X(b, subkeys->dk[7]);
+	ISL(b, a);
+	X(a, subkeys->dk[6]);
+	ISL(a, b);
+	X(b, subkeys->dk[5]);
+	ISL(b, a);
+	X(a, subkeys->dk[4]);
+	ISL(a, b);
+	X(b, subkeys->dk[3]);
+	ISL(b, a);
+	X(a, subkeys->dk[2]);
+	ISL(a, b);
+	X(b, subkeys->dk[1]);
+	IS(b);
+	X(b, subkeys->dk[0]);
+
+	STORE(out, b);
 }
 
 void kuznyechik_wipe_key(struct kuznyechik_subkeys *subkeys)
