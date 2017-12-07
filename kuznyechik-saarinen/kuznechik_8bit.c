@@ -222,9 +222,10 @@ void kuz_set_decrypt_key(kuz_key_t *kuz, const uint8_t key[32])
 	kuz_set_encrypt_key(kuz, key);
 }
 
-static void dump_values(w128_t w, const char *color)
+static void dump_values(w128_t w, const char *color, const char *a)
 {
-	fprintf(stderr, "\x1b[%sm%016llx %016llx\x1b[0m\n", color, BSWAP64(w.q[0]), BSWAP64(w.q[1]));
+	fprintf(stderr, "%s: \x1b[%sm%016llx %016llx\x1b[0m\n",
+		a, color, BSWAP64(w.q[0]), BSWAP64(w.q[1]));
 }
 
 // encrypt a block - 8 bit way
@@ -237,28 +238,28 @@ void kuz_encrypt_block(kuz_key_t *key, void *out, void *in)
 	x.q[0] = ((uint64_t *) in)[0];
 	x.q[1] = ((uint64_t *) in)[1];
 
-	dump_values(x, "33;1");
+	dump_values(x, "33;1", "E");
 
 	for (i = 0; i < 9; i++) {
-		dump_values(key->k[i], "36");
+		dump_values(key->k[i], "36", "E");
 		x.q[0] ^= key->k[i].q[0];
 		x.q[1] ^= key->k[i].q[1];
-		dump_values(x, "32");
+		dump_values(x, "32", "E");
 
 		for (j = 0; j < 16; j++)
 			x.b[j] = kuz_pi[x.b[j]];
 
-		dump_values(x, "32");
+		dump_values(x, "32", "E");
 		kuz_l(&x);
-		dump_values(x, "32");
+		dump_values(x, "32", "E");
 	}
 
-	dump_values(key->k[9], "36");
+	dump_values(key->k[9], "36", "E");
 
 	x.q[0] ^= key->k[9].q[0];
 	x.q[1] ^= key->k[9].q[1];
 
-	dump_values(x, "33;1");
+	dump_values(x, "33;1", "E");
 
 	((uint64_t *) out)[0] = x.q[0];
 	((uint64_t *) out)[1] = x.q[0];
@@ -271,18 +272,27 @@ void kuz_decrypt_block(kuz_key_t *key, void *out, void *in)
 	int i, j;
 	w128_t x;
 
+	dump_values(x, "33;1", "D");
+
 	x.q[0] = ((uint64_t *) in)[0] ^ key->k[9].q[0];
 	x.q[1] = ((uint64_t *) in)[1] ^ key->k[9].q[1];
 
+	dump_values(x, "32", "D");
+
 	for (i = 8; i >= 0; i--) {
-	
+		dump_values(key->k[i], "36", "D");
 		kuz_l_inv(&x);
+		dump_values(x, "32", "D");
 		for (j = 0; j < 16; j++)
 			x.b[j] = kuz_pi_inv[x.b[j]];
-	
+		dump_values(x, "32", "D");
 		x.q[0] ^= key->k[i].q[0];	
 		x.q[1] ^= key->k[i].q[1];
+		dump_values(x, "32", "D");
 	}
+
+	dump_values(x, "33;1", "D");
+
 	((uint64_t *) out)[0] = x.q[0];
 	((uint64_t *) out)[1] = x.q[1];
 }
