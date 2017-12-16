@@ -2,11 +2,9 @@ TARGET = test
 
 .PHONY: all clean
 
-all: $(TARGET)
-	./$(TARGET)
-
-$(TARGET): test.c kuznyechik.c kuznyechik.h
-	$(CC) test.c kuznyechik.c -o $@
+all:
+	$(CC) test.c kuznyechik.c -o xtest -march=native -DHAVE_SSE2 -Ofast
+	./xtest
 
 clean:
 	$(RM) -f $(TARGET)
