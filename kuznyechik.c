@@ -135,9 +135,15 @@ static const unsigned char kuznyechik_linear_vector[16] = {
 	0x85, 0x20, 0x94, 0x01
 };
 
+#ifdef HAVE_SSE2
 ALIGN(16) static unsigned char T_SL[16 * 256 * 16] = {};
 ALIGN(16) static unsigned char T_IL[16 * 256 * 16] = {};
 ALIGN(16) static unsigned char T_ISL[16 * 256 * 16] = {};
+#else
+ALIGN(16) static uint64_t T_SL[16][256][2] = {};
+ALIGN(16) static uint64_t T_IL[16][256][2] = {};
+ALIGN(16) static uint64_t T_ISL[16][256][2] = {};
+#endif
 
 static int kuznyechik_initialized = 0;
 
@@ -222,7 +228,7 @@ static void kuznyechik_initialize_tables()
 {
 	unsigned int i, j;
 	unsigned char *ptr;
-	size_t pos = 0;
+	unsigned int pos = 0;
 
 	gf256_init_tables();
 
@@ -232,7 +238,11 @@ static void kuznyechik_initialize_tables()
 			/*
 			 * Pi' substitution and linear transformation
 			 */
+			#ifdef HAVE_SSE2
 			ptr = T_SL + pos;
+			#else
+			ptr = (unsigned char *) T_SL[i][j];
+			#endif
 
 			ptr[i] = kuznyechik_pi[j];
 			kuznyechik_linear(ptr);
@@ -241,14 +251,24 @@ static void kuznyechik_initialize_tables()
 			 * Inversed Pi' substitution and inversed linear
 			 * transformation
 			 */
+			#ifdef HAVE_SSE2
 			ptr = T_ISL + pos;
+			#else
+			ptr = (unsigned char *) T_ISL[i][j];
+			#endif
+
 			ptr[i] = kuznyechik_pi_inv[j];
 			kuznyechik_linear_inv(ptr);
 
 			/*
 			 * Inversed linear transformation
 			 */
+			#ifdef HAVE_SSE2
 			ptr = T_IL + pos;
+			#else
+			ptr = (unsigned char *) T_IL[i][j];
+			#endif
+
 			ptr[i] = j;
 			kuznyechik_linear_inv(ptr);
 
@@ -270,7 +290,7 @@ ALIGN(16) const unsigned char sse2_bitmask[16] = {
 /*
  * Platform-dependent loading a working state from an array of bytes and
  * storage of output data in an output buffer. If SSE optimization enabled,
- * data are loaded into a single 128-bit vector, when not, vector of two
+ * data are loaded into a single 128-bit vector, when not, a vector of two
  * 64-bit integers is used instead.
  */
 #ifdef HAVE_SSE2
@@ -295,14 +315,12 @@ ALIGN(16) const unsigned char sse2_bitmask[16] = {
  * even values).
  */
 #if defined HAVE_SSE2
-#define XOR_LOOKUP(T, a, b)						\
-	addr1 = _mm_and_si128(*(__m128i *) sse2_bitmask, a);		\
-	addr2 = _mm_andnot_si128(*(__m128i *) sse2_bitmask, a);		\
-									\
-	addr1 = _mm_srli_epi16(addr1, 4);				\
-	addr2 = _mm_slli_epi16(addr2, 4);				\
-									\
-	/* addr1 = _mm_srli_epi16(addr1, 8); */				\
+#define XOR_LOOKUP(T, a, b)									\
+	addr1 = _mm_and_si128(*(__m128i *) sse2_bitmask, a);					\
+	addr2 = _mm_andnot_si128(*(__m128i *) sse2_bitmask, a);					\
+												\
+	addr1 = _mm_srli_epi16(addr1, 4);							\
+	addr2 = _mm_slli_epi16(addr2, 4);							\
 												\
 	b = _mm_load_si128((const void *) (T + _mm_extract_epi16(addr2, 0)));			\
 	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr1, 0) + 0x1000));	\
@@ -327,22 +345,25 @@ ALIGN(16) const unsigned char sse2_bitmask[16] = {
  */
 #else
 #define XOR_LOOKUP_HALF(T, a, b, i)					\
-	b[i] =  T[ 0][((uint8_t *) &a)[0]][i];				\
-	b[i] ^= T[ 1][((uint8_t *) &a)[1]][i];				\
-	b[i] ^=	T[ 2][((uint8_t *) &a)[2]][i];				\
-	b[i] ^= T[ 3][((uint8_t *) &a)[3]][i];				\
-	b[i] ^= T[ 4][((uint8_t *) &a)[4]][i];				\
-	b[i] ^= T[ 5][((uint8_t *) &a)[5]][i];				\
-	b[i] ^= T[ 6][((uint8_t *) &a)[6]][i];				\
-	b[i] ^= T[ 7][((uint8_t *) &a)[7]][i];				\
-	b[i] ^= T[ 8][((uint8_t *) &a)[8]][i];				\
-	b[i] ^= T[ 9][((uint8_t *) &a)[9]][i];				\
-	b[i] ^= T[10][((uint8_t *) &a)[10]][i];				\
-	b[i] ^= T[11][((uint8_t *) &a)[11]][i];				\
-	b[i] ^= T[12][((uint8_t *) &a)[12]][i];				\
-	b[i] ^= T[13][((uint8_t *) &a)[13]][i];				\
-	b[i] ^= T[14][((uint8_t *) &a)[14]][i];				\
-	b[i] ^= T[15][((uint8_t *) &a)[15]][i]
+	b[i] =  T[ 0][(a[0] >>  0) & 0xff][i];				\
+	b[i] ^= T[ 1][(a[0] >>  8) & 0xff][i];				\
+	b[i] ^=	T[ 2][(a[0] >> 16) & 0xff][i];				\
+	b[i] ^= T[ 3][(a[0] >> 24) & 0xff][i];				\
+	b[i] ^= T[ 4][(a[0] >> 32) & 0xff][i];				\
+	b[i] ^= T[ 5][(a[0] >> 40) & 0xff][i];				\
+	b[i] ^= T[ 6][(a[0] >> 48) & 0xff][i];				\
+	b[i] ^= T[ 7][(a[0] >> 56) & 0xff][i];				\
+	b[i] ^= T[ 8][(a[1] >>  0) & 0xff][i];				\
+	b[i] ^= T[ 9][(a[1] >>  8) & 0xff][i];				\
+	b[i] ^= T[10][(a[1] >> 16) & 0xff][i];				\
+	b[i] ^= T[11][(a[1] >> 24) & 0xff][i];				\
+	b[i] ^= T[12][(a[1] >> 32) & 0xff][i];				\
+	b[i] ^= T[13][(a[1] >> 40) & 0xff][i];				\
+	b[i] ^= T[14][(a[1] >> 48) & 0xff][i];				\
+	b[i] ^= T[15][(a[1] >> 56) & 0xff][i]
+
+// FIXME big endian!!
+
 #define XOR_LOOKUP(T, a, b)						\
 	XOR_LOOKUP_HALF(T, a, b, 0);					\
 	XOR_LOOKUP_HALF(T, a, b, 1)
