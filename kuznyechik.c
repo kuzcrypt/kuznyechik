@@ -12,6 +12,8 @@
  * GNU General Public License for more details.
  */
 
+// TODO remove info about SSE4.1
+
 /*
  * There are many implementations of Kuznyechik cipher on the Internet.
  * We have tested most of these and compared their performance as well
@@ -56,18 +58,9 @@
  * `HAVE_SSE4_1` having enabled, speedup will be maximal.
  */
 
-#if defined HAVE_SSE2 || defined HAVE_SSE4_1
-#ifndef HAVE_SSE
-#define HAVE_SSE
-#endif
-#endif
-
-#ifdef HAVE_SSE 
+#ifdef HAVE_SSE2
 #include <mmintrin.h>	/* MMX intrinsics */
 #include <emmintrin.h>	/* SSE2 intrinsics */
-#ifdef HAVE_SSE4_1
-#include <smmintrin.h>	/* SSE4.1 intrinsics */
-#endif
 #endif
 
 #include "kuznyechik.h"
@@ -142,15 +135,9 @@ static const unsigned char kuznyechik_linear_vector[16] = {
 	0x85, 0x20, 0x94, 0x01
 };
 
-#ifdef HAVE_SSE
-ALIGN(16) __m128i T_SL[16][256];
-ALIGN(16) __m128i T_IL[16][256];
-ALIGN(16) __m128i T_ISL[16][256];
-#else
-ALIGN(16) uint64_t T_SL[16][256][2];
-ALIGN(16) uint64_t T_IL[16][256][2];
-ALIGN(16) uint64_t T_ISL[16][256][2];
-#endif
+ALIGN(16) static unsigned char T_SL[16 * 256 * 16] = {};
+ALIGN(16) static unsigned char T_IL[16 * 256 * 16] = {};
+ALIGN(16) static unsigned char T_ISL[16 * 256 * 16] = {};
 
 static int kuznyechik_initialized = 0;
 
@@ -234,7 +221,8 @@ static void kuznyechik_linear_inv(unsigned char *a)
 static void kuznyechik_initialize_tables()
 {
 	unsigned int i, j;
-	unsigned char buf[16];
+	unsigned char *ptr;
+	size_t pos = 0;
 
 	gf256_init_tables();
 
@@ -244,45 +232,27 @@ static void kuznyechik_initialize_tables()
 			/*
 			 * Pi' substitution and linear transformation
 			 */
-			((uint64_t *) buf)[0] = 0;
-			((uint64_t *) buf)[1] = 0;
-			buf[i] = kuznyechik_pi[j];
-			kuznyechik_linear(buf);
-			#ifdef HAVE_SSE
-			T_SL[i][j] = *((__m128i *) buf);
-			#else
-			T_SL[i][j][0] = ((uint64_t *) buf)[0];
-			T_SL[i][j][1] = ((uint64_t *) buf)[1];
-			#endif
+			ptr = T_SL + pos;
+
+			ptr[i] = kuznyechik_pi[j];
+			kuznyechik_linear(ptr);
 
 			/*
 			 * Inversed Pi' substitution and inversed linear
 			 * transformation
 			 */
-			((uint64_t *) buf)[0] = 0;
-			((uint64_t *) buf)[1] = 0;
-			buf[i] = kuznyechik_pi_inv[j];
-			kuznyechik_linear_inv(buf);
-			#ifdef HAVE_SSE
-			T_ISL[i][j] = *((__m128i *) buf);
-			#else
-			T_ISL[i][j][0] = ((uint64_t *) buf)[0];
-			T_ISL[i][j][1] = ((uint64_t *) buf)[1];
-			#endif
+			ptr = T_ISL + pos;
+			ptr[i] = kuznyechik_pi_inv[j];
+			kuznyechik_linear_inv(ptr);
 
 			/*
 			 * Inversed linear transformation
 			 */
-			((uint64_t *) buf)[0] = 0;
-			((uint64_t *) buf)[1] = 0;
-			buf[i] = j;
-			kuznyechik_linear_inv(buf);
-			#ifdef HAVE_SSE
-			T_IL[i][j] = *((__m128i *) buf);
-			#else
-			T_IL[i][j][0] = ((uint64_t *) buf)[0];
-			T_IL[i][j][1] = ((uint64_t *) buf)[1];
-			#endif
+			ptr = T_IL + pos;
+			ptr[i] = j;
+			kuznyechik_linear_inv(ptr);
+
+			pos += 16;
 		}
 
 	kuznyechik_initialized = 1;
@@ -290,7 +260,7 @@ static void kuznyechik_initialize_tables()
 
 /******************************************************************************/
 
-#if defined HAVE_SSE2 && !defined HAVE_SSE4_1
+#if defined HAVE_SSE2
 ALIGN(16) const unsigned char sse2_bitmask[16] = {
 	0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff,
 	0x00, 0xff, 0x00, 0xff,
@@ -303,44 +273,19 @@ ALIGN(16) const unsigned char sse2_bitmask[16] = {
  * data are loaded into a single 128-bit vector, when not, vector of two
  * 64-bit integers is used instead.
  */
-#ifdef HAVE_SSE
-#define LOAD(out, in)							\
-	out = *((__m128i *) in);
-#define STORE(out, in)							\
-	*((__m128i *) out) = in;
+#ifdef HAVE_SSE2
+	#define LOAD(out, in)						\
+		out = *((__m128i *) in);
+	#define STORE(out, in)						\
+		*((__m128i *) out) = in;
 #else
-#define LOAD(out, in)							\
-	out[0] = ((uint64_t *) in)[0];					\
-	out[1] = ((uint64_t *) in)[1];
-#define STORE(out, in)							\
-	((uint64_t *) out)[0] = in[0];					\
-	((uint64_t *) out)[1] = in[1];
+	#define LOAD(out, in)						\
+		out[0] = ((uint64_t *) in)[0];				\
+		out[1] = ((uint64_t *) in)[1];
+	#define STORE(out, in)						\
+		((uint64_t *) out)[0] = in[0];				\
+		((uint64_t *) out)[1] = in[1];
 #endif
-
-/*
- * Applying a lookup table - version optimized for SSE4.1. This version
- * is able to extract 8-bit values from a temporary vector directly for
- * SSE4.1 does have instruction for that purpose. It allows us to have
- * more control over the final machine code.
- */
-#if defined HAVE_SSE4_1
-#define XOR_LOOKUP(T, a, b)						\
-	b = _mm_load_si128((void *) &T[0][_mm_extract_epi8(a, 0)]);	\
-	b = _mm_xor_si128(b, T[1][_mm_extract_epi8(a, 1)]);		\
-	b = _mm_xor_si128(b, T[2][_mm_extract_epi8(a, 2)]);		\
-	b = _mm_xor_si128(b, T[3][_mm_extract_epi8(a, 3)]);		\
-	b = _mm_xor_si128(b, T[4][_mm_extract_epi8(a, 4)]);		\
-	b = _mm_xor_si128(b, T[5][_mm_extract_epi8(a, 5)]);		\
-	b = _mm_xor_si128(b, T[6][_mm_extract_epi8(a, 6)]);		\
-	b = _mm_xor_si128(b, T[7][_mm_extract_epi8(a, 7)]);		\
-	b = _mm_xor_si128(b, T[8][_mm_extract_epi8(a, 8)]);		\
-	b = _mm_xor_si128(b, T[9][_mm_extract_epi8(a, 9)]);		\
-	b = _mm_xor_si128(b, T[10][_mm_extract_epi8(a, 10)]);		\
-	b = _mm_xor_si128(b, T[11][_mm_extract_epi8(a, 11)]);		\
-	b = _mm_xor_si128(b, T[12][_mm_extract_epi8(a, 12)]);		\
-	b = _mm_xor_si128(b, T[13][_mm_extract_epi8(a, 13)]);		\
-	b = _mm_xor_si128(b, T[14][_mm_extract_epi8(a, 14)]);		\
-	b = _mm_xor_si128(b, T[15][_mm_extract_epi8(a, 15)]);
 
 /*
  * Applying a lookup table - version optimized for SSE2. There things
@@ -349,27 +294,32 @@ ALIGN(16) const unsigned char sse2_bitmask[16] = {
  * obtain the values by applying a bit-mask and shift to right (for
  * even values).
  */
-#elif defined HAVE_SSE2
+#if defined HAVE_SSE2
 #define XOR_LOOKUP(T, a, b)						\
 	addr1 = _mm_and_si128(*(__m128i *) sse2_bitmask, a);		\
 	addr2 = _mm_andnot_si128(*(__m128i *) sse2_bitmask, a);		\
-	addr1 = _mm_srli_epi16(addr1, 8);				\
-	b = T[1][_mm_extract_epi16(addr1, 0)];				\
-	b = _mm_xor_si128(b, T[0][_mm_extract_epi16(addr2, 0)]);	\
-	b = _mm_xor_si128(b, T[3][_mm_extract_epi16(addr1, 1)]);	\
-	b = _mm_xor_si128(b, T[2][_mm_extract_epi16(addr2, 1)]);	\
-	b = _mm_xor_si128(b, T[5][_mm_extract_epi16(addr1, 2)]);	\
-	b = _mm_xor_si128(b, T[4][_mm_extract_epi16(addr2, 2)]);	\
-	b = _mm_xor_si128(b, T[7][_mm_extract_epi16(addr1, 3)]);	\
-	b = _mm_xor_si128(b, T[6][_mm_extract_epi16(addr2, 3)]);	\
-	b = _mm_xor_si128(b, T[9][_mm_extract_epi16(addr1, 4)]);	\
-	b = _mm_xor_si128(b, T[8][_mm_extract_epi16(addr2, 4)]);	\
-	b = _mm_xor_si128(b, T[11][_mm_extract_epi16(addr1, 5)]);	\
-	b = _mm_xor_si128(b, T[10][_mm_extract_epi16(addr2, 5)]);	\
-	b = _mm_xor_si128(b, T[13][_mm_extract_epi16(addr1, 6)]);	\
-	b = _mm_xor_si128(b, T[12][_mm_extract_epi16(addr2, 6)]);	\
-	b = _mm_xor_si128(b, T[15][_mm_extract_epi16(addr1, 7)]);	\
-	b = _mm_xor_si128(b, T[14][_mm_extract_epi16(addr2, 7)]);
+									\
+	addr1 = _mm_srli_epi16(addr1, 4);				\
+	addr2 = _mm_slli_epi16(addr2, 4);				\
+									\
+	/* addr1 = _mm_srli_epi16(addr1, 8); */				\
+												\
+	b = _mm_load_si128((const void *) (T + _mm_extract_epi16(addr2, 0)));			\
+	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr1, 0) + 0x1000));	\
+	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr2, 1) + 0x2000));	\
+	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr1, 1) + 0x3000));	\
+	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr2, 2) + 0x4000));	\
+	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr1, 2) + 0x5000));	\
+	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr2, 3) + 0x6000));	\
+	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr1, 3) + 0x7000));	\
+	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr2, 4) + 0x8000));	\
+	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr1, 4) + 0x9000));	\
+	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr2, 5) + 0xa000));	\
+	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr1, 5) + 0xb000));	\
+	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr2, 6) + 0xc000));	\
+	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr1, 6) + 0xd000));	\
+	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr2, 7) + 0xe000));	\
+	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr1, 7) + 0xf000));	\
 
 /*
  * Applying a lookup table - portable version. If the target machine
@@ -398,13 +348,13 @@ ALIGN(16) const unsigned char sse2_bitmask[16] = {
 	XOR_LOOKUP_HALF(T, a, b, 1)
 #endif
 
-#ifdef HAVE_SSE
-#define X(a, k)								\
-	a = _mm_xor_si128(a, *((__m128i *) &k))
+#ifdef HAVE_SSE2
+	#define X(a, k)							\
+		a = _mm_xor_si128(a, *((__m128i *) &k))
 #else
-#define X(a, k)								\
-	a[0] ^= k[0];							\
-	a[1] ^= k[1]
+	#define X(a, k)							\
+		a[0] ^= k[0];						\
+		a[1] ^= k[1]
 #endif
 
 #define SL(a, b)							\
@@ -481,11 +431,9 @@ int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 void kuznyechik_encrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 			const unsigned char *in)
 {
-	#ifdef HAVE_SSE
+	#ifdef HAVE_SSE2
 	__m128i a, b;
-	#ifndef HAVE_SSE4_1
 	__m128i addr1, addr2;
-	#endif
 	#else
 	uint64_t a[2], b[2];
 	#endif
@@ -518,11 +466,9 @@ void kuznyechik_encrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 void kuznyechik_decrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 			const unsigned char *in)
 {
-	#ifdef HAVE_SSE
+	#ifdef HAVE_SSE2
 	__m128i a, b;
-	#ifndef HAVE_SSE4_1
 	__m128i addr1, addr2;
-	#endif
 	#else
 	uint64_t a[2], b[2];
 	#endif
