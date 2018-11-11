@@ -4,7 +4,7 @@
 #include <errno.h>
 #include <time.h>
 
-#define BENCH_BUFSIZE 1024 * 1024
+#define BENCH_BUFSIZE 1024 * 1024 * 5
 #define BENCH_ITER 5
 
 #include "kuznyechik.h"
