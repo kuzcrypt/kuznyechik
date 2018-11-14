@@ -406,32 +406,57 @@ ALIGN(16) const unsigned char sse2_bitmask[16] = {
 int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 		       const unsigned char *key)
 {
+	unsigned int i, j;
+	uint64_t x[4], z[2];
+	unsigned char c[16];
+
 	if (kuznyechik_initialized == 0)
 		kuznyechik_initialize_tables();
 
-	/* FIXME - hardcoded testing key */
-	subkeys->ek[0][1] = 0x7766554433221100;
-	subkeys->ek[0][0] = 0xffeeddccbbaa9988;
-	subkeys->ek[1][1] = 0xefcdab8967452301;
-	subkeys->ek[1][0] = 0x1032547698badcfe;
-	subkeys->ek[2][1] = 0x448cc78cef6a8d22;
-	subkeys->ek[2][0] = 0x43436915534831db;
-	subkeys->ek[3][1] = 0x04fd9f0ac4adeb15;
-	subkeys->ek[3][0] = 0x68eccfe9d853453d;
-	subkeys->ek[4][1] = 0xacf129f44692e5d3;
-	subkeys->ek[4][0] = 0x285e4ac468646457;
-	subkeys->ek[5][1] = 0x1b58da3428e832b5;
-	subkeys->ek[5][0] = 0x32645c16359407bd;
-	subkeys->ek[6][1] = 0xb198005a26275770;
-	subkeys->ek[6][0] = 0xde45877e7540e651;
-	subkeys->ek[7][1] = 0x84f98622a2912ad7;
-	subkeys->ek[7][0] = 0x3edd9f7b0125795a;
-	subkeys->ek[8][1] = 0x17e5b6cd732ff3a5;
-	subkeys->ek[8][0] = 0x2331c77853e244bb;
-	subkeys->ek[9][1] = 0x43404a8ea8ba5d75;
-	subkeys->ek[9][0] = 0x5bf4bc1674dde972;
+	kuznyechik_wipe_key(subkeys);
 
-	unsigned int i;
+	x[0] = ((uint64_t *) key)[0];
+	x[1] = ((uint64_t *) key)[1];
+	x[2] = ((uint64_t *) key)[2];
+	x[3] = ((uint64_t *) key)[3];
+
+	subkeys->ek[0][0] = x[0];
+	subkeys->ek[0][1] = x[1];
+	subkeys->ek[1][0] = x[2];
+	subkeys->ek[1][1] = x[3];
+
+	for (i = 1; i <= 32; i++) {
+		((uint64_t *) c)[0] = 0;
+		((uint64_t *) c)[1] = 0;
+		c[15] = i;
+		kuznyechik_linear(c);
+
+		z[0] = x[0] ^ ((uint64_t *) c)[0];
+		z[1] = x[1] ^ ((uint64_t *) c)[1];
+
+		for (j = 0; j < 16; j++)
+			((unsigned char *) z)[j]
+				= kuznyechik_pi[((unsigned char *) z)[j]];
+
+		kuznyechik_linear((unsigned char *) z);
+
+		z[0] ^= x[2];
+		z[1] ^= x[3];
+
+		x[2] = x[0];
+		x[3] = x[1];
+
+		x[0] = z[0];
+		x[1] = z[1];
+
+		if ((i & 7) == 0) {
+			subkeys->ek[(i >> 2)][0] = x[0];
+			subkeys->ek[(i >> 2)][1] = x[1];
+			subkeys->ek[(i >> 2) + 1][0] = x[2];
+			subkeys->ek[(i >> 2) + 1][1] = x[3];
+		}
+	}
+
 	for (i = 0; i < 10; i++) {
 		subkeys->dk[i][0] = subkeys->ek[i][0];
 		subkeys->dk[i][1] = subkeys->ek[i][1];
