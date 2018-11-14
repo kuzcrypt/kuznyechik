@@ -12,8 +12,6 @@
  * GNU General Public License for more details.
  */
 
-// TODO remove info about SSE4.1
-
 /*
  * There are many implementations of Kuznyechik cipher on the Internet.
  * We have tested most of these and compared their performance as well
@@ -38,24 +36,19 @@
  *     https://github.com/veracrypt/veracrypt
  *
  *
- * Optimization:
+ * Optimization
+ * ------------
+ * This code contains two distinct implementations at once. You can
+ * determine what version will be used by defining `HAVE_SSE2` macro.
+ * Both versions, however, are optimized by using large precomputed
+ * lookup tables.
  *
- * This code contains three distinct implementations at once. You can
- * determine what version the code will be compiled into by defining macros
- * `HAVE_SSE2` and `HAVE_SSE4_1`. All versions, however, are optimized by
- * using large precomputed lookup tables.
+ * - If the macro is not defined, a portable version working with 64-bit
+ *   integers will be used.
  *
- * a. If none of these macros is defined, a portable version working with
- * 64-bit integers will be used.
- *
- * b. In the case that your CPU supports SSE2 instructions, you can enable
- * SSE2 optimization by defining `HAVE_SSE2`. It increases performance
- * dramatically (almost twice). But, for some limitations of SSE2 instruction
- * set, there is still a room for additional speedup.
- *
- * c. On CPUs with SSE4.1, number of instructions needed to complete
- * encryption of one block of data can be reduced even more, so with macro
- * `HAVE_SSE4_1` having enabled, speedup will be maximal.
+ * - In the case that your CPU supports SSE2 instructions, you can enable
+ *   SSE2 optimization by defining the `HAVE_SSE2` macro. It increases
+ *   performance dramatically (almost twice).
  */
 
 #ifdef HAVE_SSE2
