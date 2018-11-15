@@ -338,24 +338,22 @@ ALIGN(16) const unsigned char sse2_bitmask[16] = {
  */
 #else
 #define XOR_LOOKUP_HALF(T, a, b, i)					\
-	b[i] =  T[ 0][(a[0] >>  0) & 0xff][i];				\
-	b[i] ^= T[ 1][(a[0] >>  8) & 0xff][i];				\
-	b[i] ^=	T[ 2][(a[0] >> 16) & 0xff][i];				\
-	b[i] ^= T[ 3][(a[0] >> 24) & 0xff][i];				\
-	b[i] ^= T[ 4][(a[0] >> 32) & 0xff][i];				\
-	b[i] ^= T[ 5][(a[0] >> 40) & 0xff][i];				\
-	b[i] ^= T[ 6][(a[0] >> 48) & 0xff][i];				\
-	b[i] ^= T[ 7][(a[0] >> 56) & 0xff][i];				\
-	b[i] ^= T[ 8][(a[1] >>  0) & 0xff][i];				\
-	b[i] ^= T[ 9][(a[1] >>  8) & 0xff][i];				\
-	b[i] ^= T[10][(a[1] >> 16) & 0xff][i];				\
-	b[i] ^= T[11][(a[1] >> 24) & 0xff][i];				\
-	b[i] ^= T[12][(a[1] >> 32) & 0xff][i];				\
-	b[i] ^= T[13][(a[1] >> 40) & 0xff][i];				\
-	b[i] ^= T[14][(a[1] >> 48) & 0xff][i];				\
-	b[i] ^= T[15][(a[1] >> 56) & 0xff][i]
-
-// FIXME big endian!!
+	b[i] =  T[ 0][(((unsigned char *) &a[0])[0]) & 0xff][i];	\
+	b[i] ^= T[ 1][(((unsigned char *) &a[0])[1]) & 0xff][i];	\
+	b[i] ^=	T[ 2][(((unsigned char *) &a[0])[2]) & 0xff][i];	\
+	b[i] ^= T[ 3][(((unsigned char *) &a[0])[3]) & 0xff][i];	\
+	b[i] ^= T[ 4][(((unsigned char *) &a[0])[4]) & 0xff][i];	\
+	b[i] ^= T[ 5][(((unsigned char *) &a[0])[5]) & 0xff][i];	\
+	b[i] ^= T[ 6][(((unsigned char *) &a[0])[6]) & 0xff][i];	\
+	b[i] ^= T[ 7][(((unsigned char *) &a[0])[7]) & 0xff][i];	\
+	b[i] ^= T[ 8][(((unsigned char *) &a[1])[0]) & 0xff][i];	\
+	b[i] ^= T[ 9][(((unsigned char *) &a[1])[1]) & 0xff][i];	\
+	b[i] ^= T[10][(((unsigned char *) &a[1])[2]) & 0xff][i];	\
+	b[i] ^= T[11][(((unsigned char *) &a[1])[3]) & 0xff][i];	\
+	b[i] ^= T[12][(((unsigned char *) &a[1])[4]) & 0xff][i];	\
+	b[i] ^= T[13][(((unsigned char *) &a[1])[5]) & 0xff][i];	\
+	b[i] ^= T[14][(((unsigned char *) &a[1])[6]) & 0xff][i];	\
+	b[i] ^= T[15][(((unsigned char *) &a[1])[7]) & 0xff][i]
 
 #define XOR_LOOKUP(T, a, b)						\
 	XOR_LOOKUP_HALF(T, a, b, 0);					\
