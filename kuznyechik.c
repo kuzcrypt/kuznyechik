@@ -48,7 +48,12 @@
  *
  * - In the case that your CPU supports SSE2 instructions, you can enable
  *   SSE2 optimization by defining the `HAVE_SSE2` macro. It increases
- *   performance dramatically (almost twice).
+ *   performance dramatically.
+ *
+ *
+ * Notes
+ * -----
+ * 2018-11-15 - tested on virtual big-endian machine (powerpc in qemu).
  */
 
 #ifdef HAVE_SSE2

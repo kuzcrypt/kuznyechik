@@ -1,0 +1,44 @@
+Kuznyechik - Russian 128-bit Block Cipher
+=========================================
+
+There are many implementations of Kuznyechik cipher on the Internet.
+We have tested most of these and compared their performance as well
+as some other important attributes (SIMD optimization, readability,
+etc.). With this knowledge having gained, we decided to implement
+a new implementation combining two major attributes: maximal speed
+and good readability.
+
+This version is mostly based on Dr. Markku-Juhani O. Saarinen's code
+that is available at:
+
+    https://github.com/mjosaarinen/kuznechik
+
+However, his implementation did not contain an optimized native 64-bit
+version without SIMD optimizations. Since we wanted to have a portable
+implementation that could be run even on CPUs without SSE instructions,
+we needed to add it.
+
+The native 64-bit version has been inspired by code used in VeraCrypt,
+and originally written by "kerukuro":
+
+    https://github.com/veracrypt/veracrypt
+
+
+Optimization
+------------
+This code contains two distinct implementations at once. You can
+determine what version will be used by defining `HAVE_SSE2` macro.
+Both versions, however, are optimized by using large precomputed
+lookup tables.
+
+  - If the macro is not defined, a portable version working with 64-bit
+    integers will be used.
+
+  - In the case that your CPU supports SSE2 instructions, you can enable
+    SSE2 optimization by defining the `HAVE_SSE2` macro. It increases
+    performance dramatically.
+
+
+Notes
+-----
+2018-11-15 - tested on virtual big-endian machine (powerpc in qemu).
