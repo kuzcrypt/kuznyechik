@@ -1,10 +1,10 @@
-TARGET = test
+TARGET = xtest
 
 .PHONY: all clean
 
 all:
 	$(CC) test.c kuznyechik.c -o xtest -Ofast -march=native -DHAVE_SSE2
-	./xtest
+	./$(TARGET)
 
 clean:
-	$(RM) -f $(TARGET)
+	$(RM) $(TARGET)
