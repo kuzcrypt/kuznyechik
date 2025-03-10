@@ -1,58 +1,39 @@
 /*
- * kuznyechik.h
+ * Kuznyechik / GOST R 34.12-2015
+ * National Standard of the Russian Federation
  *
- * Copyright (C) 2017  Vlasta Vesely
+ * Copyright © 2017, 2019, 2025, Vlasta Vesely <vlastavesely@proton.me>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of General Public License version 2.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted. There is ABSOLUTELY NO WARRANTY, express
+ * or implied. / Распространение и использование в исходной и бинарной
+ * формах, с изменениями или без них, разрешены. ГАРАНТИЙ АБСОЛЮТНО НЕТ,
+ * ни явных, ни подразумеваемых.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * This code is released under the terms of GPLv2. For more information,
+ * see the file COPYING. / Этот код выпущен на условиях GPLv2. Для получения
+ * дополнительной информации смотрите файл COPYING (на английском языке).
  */
-
-/*
- * Most basic example usage:
- *    struct kuznyechik_subkeys subkeys;
- *    kuznyechik_set_key(&subkeys, key);
- *    kuznyechik_encrypt(&subkeys, ciphertext, plaintext);
- *    kuznyechik_decrypt(&subkeys, plaintext, ciphertext);
- *    kuznyechik_wipe_key(&subkeys);
- *
- * Test vectors (from the reference document):
- *    K = 8899aabbccddeeff0011223344556677fedcba98765432100123456789abcdef
- *    P = 1122334455667700ffeeddccbbaa9988
- *    C = 7f679d90bebc24305a468d42b9d4edcd
- */
-
 #ifndef __KUZNYECHIK_H
 #define __KUZNYECHIK_H
+
+#include <stdint.h>
 
 #if defined (__cplusplus)
 extern "C" {
 #endif
 
-#include <stdint.h>
-
-#ifndef ALIGN
-#define ALIGN(n)	__attribute__((aligned(n)))
-#endif
-
 struct kuznyechik_subkeys {
-	uint64_t ek[10][2];
-	uint64_t dk[10][2];
+	uint64_t ek[20];	/* encryption keys (10 rounds × 2 uint64_t) */
+	uint64_t dk[20];	/* decryption keys (10 rounds × 2 uint64_t) */
 };
 
 int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 		       const unsigned char *key);
-
 void kuznyechik_encrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 			const unsigned char *in);
-
 void kuznyechik_decrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 			const unsigned char *in);
-
 void kuznyechik_wipe_key(struct kuznyechik_subkeys *subkeys);
 
 #if defined (__cplusplus)

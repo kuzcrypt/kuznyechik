@@ -1,73 +1,76 @@
 /*
- * kuznyechik.c
+ * Kuznyechik / GOST R 34.12-2015
+ * National Standard of the Russian Federation
  *
- * Copyright (C) 2017  Vlasta Vesely
+ * Copyright © 2017, 2019, 2025, Vlasta Vesely <vlastavesely@proton.me>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of General Public License version 2.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted. There is ABSOLUTELY NO WARRANTY, express
+ * or implied. / Распространение и использование в исходной и бинарной
+ * формах, с изменениями или без них, разрешены. ГАРАНТИЙ АБСОЛЮТНО НЕТ,
+ * ни явных, ни подразумеваемых.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * This code is released under the terms of GPLv2. For more information,
+ * see the file COPYING. / Этот код выпущен на условиях GPLv2. Для получения
+ * дополнительной информации смотрите файл COPYING (на английском языке).
  */
 
 /*
- * There are many implementations of Kuznyechik cipher on the Internet.
- * We have tested most of these and compared their performance as well
- * as some other important attributes (SIMD optimization, readability,
- * etc.). With this knowledge having gained, we decided to implement
- * a new implementation combining two major attributes: maximal speed
- * and good readability.
+ * This is an implementation of Kuznyechik, the 128-bit block cipher used as
+ * a national standard of the Russian Federation and described in ГОСТ Р
+ * 34.12-2015, ГОСТ 34.12-2018 and RFC 7801. It has been implemented
+ * according to the reference document:
  *
- * This version is mostly based on Dr. Markku-Juhani O. Saarinen's code
- * that is available at:
+ *   https://tc26.ru/standard/gost/GOST_R_3412-2015.pdf (на русском)
  *
- *     https://github.com/mjosaarinen/kuznechik
+ * ─────────────────────────────────────────────────────────────────────────────
  *
- * However, his implementation did not contain an optimized native 64-bit
- * version without SIMD optimizations. Since we wanted to have a portable
- * implementation that could be run even on CPUs without SSE instructions,
- * we needed to add it.
+ * The origin of this implementation goes far back in history. Its first
+ * version has been based on the code written by Dr. Markku-Juhani O.
+ * Saarinen (still accessible: https://github.com/mjosaarinen/kuznechik).
+ * Our changes in the initial version included optimised portable 64-bit
+ * code and, as an option, code optimised for CPUs with SSE extensions.
  *
- * The native 64-bit version has been inspired by code used in VeraCrypt,
- * and originally written by "kerukuro":
+ * The SSE version was supposed to be faster and it likely was at the time
+ * of writing the code. But modern compilers have their own ways how to
+ * optimise the compiled code and drastic manual optimisations may actually
+ * prove detrimental to performance. The following benchmark speaks for
+ * itself:
  *
- *     https://github.com/veracrypt/veracrypt
+ *   kuznyechik-kuzcrypt-ref ........... 152.684 MB/s (this version)
+ *   kuznyechik-kuzcrypt-old-ref ....... 150.274 MB/s
+ *   kuznyechik-kuzcrypt-old-sse ....... 148.737 MB/s
+ *   kuznyechik-oliynykov-ref .......... 138.780 MB/s
+ *   kuznyechik-saarinen-sse ........... 130.230 MB/s
+ *   kuznyechik-veracrypt-ref .......... 148.082 MB/s
+ *   kuznyechik-veracrypt-sse .......... 142.895 MB/s
  *
+ * For this objective reason, we decided to remove the ‘optimised’ version
+ * and keep the code portable. All versions were compiled with gcc and with
+ * -Ofast turned on. Encryption was tested in the CBC mode.
  *
- * Optimization
- * ------------
- * This code contains two distinct implementations at once. You can
- * determine what version will be used by defining `HAVE_SSE2` macro.
- * Both versions, however, are optimized by using large precomputed
- * lookup tables.
+ * ─────────────────────────────────────────────────────────────────────────────
  *
- * - If the macro is not defined, a portable version working with 64-bit
- *   integers will be used.
- *
- * - In the case that your CPU supports SSE2 instructions, you can enable
- *   SSE2 optimization by defining the `HAVE_SSE2` macro. It increases
- *   performance dramatically.
- *
- *
- * Notes
- * -----
- * 2018-11-15 - tested on virtual big-endian machine (powerpc in qemu).
+ * This code is endian-independent.
  */
-
-#ifdef HAVE_SSE2
-#include <mmintrin.h>	/* MMX intrinsics */
-#include <emmintrin.h>	/* SSE2 intrinsics */
-#endif
-
+#include <stdbool.h>
 #include "kuznyechik.h"
 
 /*
- * Pi' substitution table for nonlinear mapping as defined in section 4.1.1
+ * The substitution table π′ for nonlinear mapping as defined in section 4.1.1
  * of the reference document.
  *
- * Pi' = (Pi'(0), Pi'(1), ... , Pi'(255))
+ *   π′ = (π′(0), π′(1), ... , π′(255))
+ *
+ * It should be noted that there is some controversy about the origins of the
+ * values. The reference document does not comment on their origin and simply
+ * enumerates them. The design criteria were not disclosed and this lack of
+ * transparency led to concerns that there might be hidden vulnerabilities or
+ * weaknesses exploitable by the FSB.
+ *
+ * Reverse engineering showed that the S-box has a hidden structure
+ * (https://eprint.iacr.org/2016/071.pdf) but, as far as we know, there is
+ * no PUBLICLY known hidden backdoor.
  */
 static const unsigned char kuznyechik_pi[256] = {
 	0xfc, 0xee, 0xdd, 0x11, 0xcf, 0x6e, 0x31, 0x16, 0xfb, 0xc4, 0xfa, 0xda,
@@ -95,9 +98,9 @@ static const unsigned char kuznyechik_pi[256] = {
 };
 
 /*
- * Inversed Pi' substitution box.
+ * Inversed π′ substitution box: reverses transformation by π′().
  *
- * Pi^(-1)' = (Pi^(-1)'(0), Pi^(-1)'(1), ... , Pi^(-1)'(255))
+ *   π⁻¹′ = (π⁻¹′(0), π⁻¹′(1), ... , π⁻¹′(255))
  */
 static const unsigned char kuznyechik_pi_inv[256] = {
 	0xa5, 0x2d, 0x32, 0x8f, 0x0e, 0x30, 0x38, 0xc0, 0x54, 0xe6, 0x9e, 0x39,
@@ -126,26 +129,23 @@ static const unsigned char kuznyechik_pi_inv[256] = {
 
 /*
  * Vector of constants used in linear transformation as defined in section
- * 4.1.2 of the reference document.
+ * 4.1.2 of the reference document. It is used in the function l() which
+ * multiplies each element of the input with a constant from this vector.
  */
 static const unsigned char kuznyechik_linear_vector[16] = {
 	0x94, 0x20, 0x85, 0x10, 0xc2, 0xc0, 0x01, 0xfb, 0x01, 0xc0, 0xc2, 0x10,
 	0x85, 0x20, 0x94, 0x01
 };
 
-#ifdef HAVE_SSE2
-ALIGN(16) static unsigned char T_SL[16 * 256 * 16] = {};
-ALIGN(16) static unsigned char T_IL[16 * 256 * 16] = {};
-ALIGN(16) static unsigned char T_ISL[16 * 256 * 16] = {};
-#else
-ALIGN(16) static uint64_t T_SL[16][256][2] = {};
-ALIGN(16) static uint64_t T_IL[16][256][2] = {};
-ALIGN(16) static uint64_t T_ISL[16][256][2] = {};
-#endif
+/* ────────────────────────────────────────────────────────────────────────── */
 
-static int kuznyechik_initialized = 0;
-
-/******************************************************************************/
+/*
+ * The polynomial for GF multiplication as defined in section 2.2
+ * of the reference document:
+ *
+ *   p(x) = x⁸ + x⁷ + x⁶ + x + 1 ⇒ 0b11000011 = 0xc3
+ */
+#define GF_MUL_POLYNOMIAL 0xc3
 
 static unsigned char gf_multtable_exp[256];
 static unsigned char gf_multtable_log[256];
@@ -154,8 +154,9 @@ static unsigned char gf256_mul_fast(unsigned char a, unsigned char b)
 {
 	unsigned int c;
 
-	if (a == 0 || b == 0)
+	if (a == 0 || b == 0) {
 		return 0;
+	}
 
 	c = gf_multtable_log[a] + gf_multtable_log[b];
 
@@ -167,9 +168,10 @@ static unsigned char gf256_mul_slow(unsigned char a, unsigned char b)
 	unsigned char c = 0;
 
 	while (b) {
-		if (b & 1)
+		if (b & 1) {
 			c ^= a;
-		a = (a << 1) ^ (a & 0x80 ? 0xC3 : 0x00);
+		}
+		a = (a << 1) ^ (a & 0x80 ? GF_MUL_POLYNOMIAL : 0x00);
 		b >>= 1;
 	}
 	return c;
@@ -183,27 +185,43 @@ static void gf256_init_tables()
 	for (i = 0; i < 256; i++) {
 		gf_multtable_log[c] = i;
 		gf_multtable_exp[i] = c;
-		c = gf256_mul_slow(c, 0x03);
+		c = gf256_mul_slow(c, 0x03); /* a primitive generator */
 	}
 }
 
-/******************************************************************************/
+/* ────────────────────────────────────────────────────────────────────────── */
 
+/*
+ * Linear mapping as defined in section 4.2.
+ * Function R() is defined in section 4.1.2 and transforms the first element
+ * of the input vector by the function l() whilst shifting the rest.
+ *
+ *   m = (148, 32, 133, 16, 194, 192, 1, 251, 1, 192, 194, 16, 133, 32, 148, 1)
+ *   l(a₀, …, a₁₅) = a₀·m₀ + a₁·m₁ + … + a₁₅·m₁₅
+ *
+ *   R(a) = R(a₀ ∥ … ∥ a₁₅) = l(a₀, …, a₁₅) ∥ a₀ ∥ … ∥ a₁₄, where a ∈ V₁₂₈
+ *   L(a) = R¹⁶(a), where a ∈ V₁₂₈
+ */
 static void kuznyechik_linear(unsigned char *a)
 {
-	unsigned char c;
+	unsigned char l;
 	int i, j;
 
-	for (i = 16; i; i--) {
-		c = a[15];
+	for (i = 0; i < 16; i++) {
+		l = a[15];
 		for (j = 14; j >= 0; j--) {
 			a[j + 1] = a[j];
-			c ^= gf256_mul_fast(a[j], kuznyechik_linear_vector[j]);
+			l ^= gf256_mul_fast(a[j], kuznyechik_linear_vector[j]);
 		}
-		a[0] = c;
+		a[0] = l;
 	}
 }
 
+/*
+ * Inverse function to L() as defined in section 4.2.
+ *
+ *   L⁻¹(a) = (R⁻¹)¹⁶(a), where a ∈ V₁₂₈
+ */
 static void kuznyechik_linear_inv(unsigned char *a)
 {
 	unsigned char c;
@@ -219,252 +237,244 @@ static void kuznyechik_linear_inv(unsigned char *a)
 	}
 }
 
+/* ────────────────────────────────────────────────────────────────────────── */
+
 /*
- * This function initializes lookup tables.
+ * The transformations of Kuznyechik can be optimised with lookup tables
+ * containing precomputed values of the linear transformation performed
+ * on zero vectors with a single byte set to a value x, where ∀x ∈ {0,…,255},
+ * and transformed by the π′ function. In this way, encryption becomes
+ * exclusively a series of XORs of values from the kuz_pil table and the round
+ * subkeys. Decryption requires some additional transformation before XORing
+ * the last round key.
+ *
+ * Let π′: ℤ₂⁸ → ℤ₂⁸ be the substitution function.
+ * Let L: ℤ₂¹²⁸ → ℤ₂¹²⁸ be the linear transformation function.
+ * Let eᵢ be a ℤ₂¹²⁸ with a single nonzero byte at position i.
+ * Let π′⁻¹ be the inverse of π′.
+ *
+ * kuz_pil:
+ *   Tᵢ​[x] = L(π′(x)·eᵢ​), ∀x ∈ {0,…,255}
+ *
+ * kuz_pil_inv:
+ *   Tᵢ​[x] = L⁻¹(π′⁻¹(x)·eᵢ​), ∀x ∈ {0,…,255}
+ *
+ * kuz_l_inv:
+ *   Tᵢ​[x] = L⁻¹(x·eᵢ​), ∀x ∈ {0,…,255}
+ *
+ * kuz_c:
+ *   Tᵢ​[x] = L((x+1)·e₁₅), ∀x ∈ {0,…,31}
  */
-static void kuznyechik_initialize_tables()
+static uint64_t kuz_pil[16][256][2];
+static uint64_t kuz_pil_inv[16][256][2];
+static uint64_t kuz_l_inv[16][256][2];
+static uint64_t kuz_c[32][2];
+
+static int kuznyechik_initialised = false;
+
+static void kuznyechik_initialise_tables()
 {
 	unsigned int i, j;
 	unsigned char *ptr;
-	unsigned int pos = 0;
+
+	if (kuznyechik_initialised == true) {
+		return;
+	}
 
 	gf256_init_tables();
 
-	for (i = 0; i < 16; i++)
+	for (i = 0; i < 16; i++) {
 		for (j = 0; j < 256; j++) {
-
 			/*
-			 * Pi' substitution and linear transformation
+			 * Example for i = 1, j = 11:
+			 *   π′(j) = 0xda
+			 *   Tᵢ​[j] = L(0x00da0000000000000000000000000000)
+			 *   Tᵢ​[j] = 0x127cd4effe23c12e3d1b513972c8577c
 			 */
-			#ifdef HAVE_SSE2
-			ptr = T_SL + pos;
-			#else
-			ptr = (unsigned char *) T_SL[i][j];
-			#endif
-
+			ptr = (unsigned char *) kuz_pil[i][j];
+			kuz_pil[i][j][0] = 0;
+			kuz_pil[i][j][1] = 0;
 			ptr[i] = kuznyechik_pi[j];
 			kuznyechik_linear(ptr);
 
 			/*
-			 * Inversed Pi' substitution and inversed linear
-			 * transformation
+			 * Example for i = 7, j = 56:
+			 *   π′⁻¹(j) = 0xaa
+			 *   Tᵢ​[j] = L⁻¹(0x00000000000000aa0000000000000000)
+			 *   Tᵢ​[j] = 0xaa1756ba36be19b344ee0a0d4d9d318e
 			 */
-			#ifdef HAVE_SSE2
-			ptr = T_ISL + pos;
-			#else
-			ptr = (unsigned char *) T_ISL[i][j];
-			#endif
-
+			ptr = (unsigned char *) kuz_pil_inv[i][j];
+			kuz_pil_inv[i][j][0] = 0;
+			kuz_pil_inv[i][j][1] = 0;
 			ptr[i] = kuznyechik_pi_inv[j];
 			kuznyechik_linear_inv(ptr);
 
 			/*
-			 * Inversed linear transformation
+			 * Example for i = 2, j = 167:
+			 *   j = 0xa7
+			 *   Tᵢ​[j] = L⁻¹(0x0000a700000000000000000000000000)
+			 *   Tᵢ​[j] = 0x074d7f867f7f6339fb898dff3be5d739
 			 */
-			#ifdef HAVE_SSE2
-			ptr = T_IL + pos;
-			#else
-			ptr = (unsigned char *) T_IL[i][j];
-			#endif
-
+			ptr = (unsigned char *) kuz_l_inv[i][j];
+			kuz_l_inv[i][j][0] = 0;
+			kuz_l_inv[i][j][1] = 0;
 			ptr[i] = j;
 			kuznyechik_linear_inv(ptr);
-
-			pos += 16;
 		}
+	}
 
-	kuznyechik_initialized = 1;
+	/*
+	 * Generate constants for key schedule, section 4.3.
+	 *
+	 *   Cᵢ = L(Vec₁₂₈(i)), i = 1, 2, …, 32
+	 */
+	for (i = 0; i < 32; i++) {
+		ptr = (unsigned char *) kuz_c[i];
+		kuz_c[i][0] = 0;
+		kuz_c[i][1] = 0;
+		ptr[15] = (i + 1);
+		kuznyechik_linear(ptr);
+	}
+
+	kuznyechik_initialised = true;
 }
 
-/******************************************************************************/
+/* ────────────────────────────────────────────────────────────────────────── */
 
-#if defined HAVE_SSE2
-ALIGN(16) const unsigned char sse2_bitmask[16] = {
-	0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff,
-	0x00, 0xff, 0x00, 0xff,
-};
-#endif
+#define XOR_TABLE(lktab, a, b, i) (				\
+	lktab[ 0][(((unsigned char *) &a)[0]) & 0xff][i] ^	\
+	lktab[ 1][(((unsigned char *) &a)[1]) & 0xff][i] ^	\
+	lktab[ 2][(((unsigned char *) &a)[2]) & 0xff][i] ^	\
+	lktab[ 3][(((unsigned char *) &a)[3]) & 0xff][i] ^	\
+	lktab[ 4][(((unsigned char *) &a)[4]) & 0xff][i] ^	\
+	lktab[ 5][(((unsigned char *) &a)[5]) & 0xff][i] ^	\
+	lktab[ 6][(((unsigned char *) &a)[6]) & 0xff][i] ^	\
+	lktab[ 7][(((unsigned char *) &a)[7]) & 0xff][i] ^	\
+	lktab[ 8][(((unsigned char *) &b)[0]) & 0xff][i] ^	\
+	lktab[ 9][(((unsigned char *) &b)[1]) & 0xff][i] ^	\
+	lktab[10][(((unsigned char *) &b)[2]) & 0xff][i] ^	\
+	lktab[11][(((unsigned char *) &b)[3]) & 0xff][i] ^	\
+	lktab[12][(((unsigned char *) &b)[4]) & 0xff][i] ^	\
+	lktab[13][(((unsigned char *) &b)[5]) & 0xff][i] ^	\
+	lktab[14][(((unsigned char *) &b)[6]) & 0xff][i] ^	\
+	lktab[15][(((unsigned char *) &b)[7]) & 0xff][i]	\
+)
 
-/*
- * Platform-dependent loading a working state from an array of bytes and
- * storage of output data in an output buffer. If SSE optimization enabled,
- * data are loaded into a single 128-bit vector, when not, a vector of two
- * 64-bit integers is used instead.
- */
-#ifdef HAVE_SSE2
-	#define LOAD(out, in)						\
-		out = *((__m128i *) in);
-	#define STORE(out, in)						\
-		*((__m128i *) out) = in;
-#else
-	#define LOAD(out, in)						\
-		out[0] = ((uint64_t *) in)[0];				\
-		out[1] = ((uint64_t *) in)[1];
-	#define STORE(out, in)						\
-		((uint64_t *) out)[0] = in[0];				\
-		((uint64_t *) out)[1] = in[1];
-#endif
+#define KUZ_PI_INV (uint64_t) kuznyechik_pi_inv
 
-/*
- * Applying a lookup table - version optimized for SSE2. There things
- * are a little bit tricky. SSE2 is only able to extract 16-bit values
- * from a vector. For that reason, we have to split our vector and
- * obtain the values by applying a bit-mask and shift to right (for
- * even values).
- */
-#if defined HAVE_SSE2
-#define XOR_LOOKUP(T, a, b)									\
-	addr1 = _mm_and_si128(*(__m128i *) sse2_bitmask, a);					\
-	addr2 = _mm_andnot_si128(*(__m128i *) sse2_bitmask, a);					\
-												\
-	addr1 = _mm_srli_epi16(addr1, 4);							\
-	addr2 = _mm_slli_epi16(addr2, 4);							\
-												\
-	b = _mm_load_si128((const void *) (T + _mm_extract_epi16(addr2, 0)));			\
-	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr1, 0) + 0x1000));	\
-	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr2, 1) + 0x2000));	\
-	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr1, 1) + 0x3000));	\
-	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr2, 2) + 0x4000));	\
-	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr1, 2) + 0x5000));	\
-	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr2, 3) + 0x6000));	\
-	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr1, 3) + 0x7000));	\
-	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr2, 4) + 0x8000));	\
-	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr1, 4) + 0x9000));	\
-	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr2, 5) + 0xa000));	\
-	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr1, 5) + 0xb000));	\
-	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr2, 6) + 0xc000));	\
-	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr1, 6) + 0xd000));	\
-	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr2, 7) + 0xe000));	\
-	b = _mm_xor_si128(b, *(const __m128i *) (T + _mm_extract_epi16(addr1, 7) + 0xf000));	\
+#define INV_PI(a) (							\
+	KUZ_PI_INV[(a >> (0 * 8)) & 0xff] << (0 * 8) |			\
+	KUZ_PI_INV[(a >> (1 * 8)) & 0xff] << (1 * 8) |			\
+	KUZ_PI_INV[(a >> (2 * 8)) & 0xff] << (2 * 8) |			\
+	KUZ_PI_INV[(a >> (3 * 8)) & 0xff] << (3 * 8) |			\
+	KUZ_PI_INV[(a >> (4 * 8)) & 0xff] << (4 * 8) |			\
+	KUZ_PI_INV[(a >> (5 * 8)) & 0xff] << (5 * 8) |			\
+	KUZ_PI_INV[(a >> (6 * 8)) & 0xff] << (6 * 8) |			\
+	KUZ_PI_INV[(a >> (7 * 8)) & 0xff] << (7 * 8)			\
+)
 
-/*
- * Applying a lookup table - portable version. If the target machine
- * does not have any SSE instruction set, we use this fallback code.
- */
-#else
-#define XOR_LOOKUP_HALF(T, a, b, i)					\
-	b[i] =  T[ 0][(((unsigned char *) &a[0])[0]) & 0xff][i];	\
-	b[i] ^= T[ 1][(((unsigned char *) &a[0])[1]) & 0xff][i];	\
-	b[i] ^=	T[ 2][(((unsigned char *) &a[0])[2]) & 0xff][i];	\
-	b[i] ^= T[ 3][(((unsigned char *) &a[0])[3]) & 0xff][i];	\
-	b[i] ^= T[ 4][(((unsigned char *) &a[0])[4]) & 0xff][i];	\
-	b[i] ^= T[ 5][(((unsigned char *) &a[0])[5]) & 0xff][i];	\
-	b[i] ^= T[ 6][(((unsigned char *) &a[0])[6]) & 0xff][i];	\
-	b[i] ^= T[ 7][(((unsigned char *) &a[0])[7]) & 0xff][i];	\
-	b[i] ^= T[ 8][(((unsigned char *) &a[1])[0]) & 0xff][i];	\
-	b[i] ^= T[ 9][(((unsigned char *) &a[1])[1]) & 0xff][i];	\
-	b[i] ^= T[10][(((unsigned char *) &a[1])[2]) & 0xff][i];	\
-	b[i] ^= T[11][(((unsigned char *) &a[1])[3]) & 0xff][i];	\
-	b[i] ^= T[12][(((unsigned char *) &a[1])[4]) & 0xff][i];	\
-	b[i] ^= T[13][(((unsigned char *) &a[1])[5]) & 0xff][i];	\
-	b[i] ^= T[14][(((unsigned char *) &a[1])[6]) & 0xff][i];	\
-	b[i] ^= T[15][(((unsigned char *) &a[1])[7]) & 0xff][i]
+#define X(a, b, k1, k2)							\
+	a ^= k1;							\
+	b ^= k2;
 
-#define XOR_LOOKUP(T, a, b)						\
-	XOR_LOOKUP_HALF(T, a, b, 0);					\
-	XOR_LOOKUP_HALF(T, a, b, 1)
-#endif
+#define SL(a, b, c, d)							\
+	c = XOR_TABLE(kuz_pil, a, b, 0);				\
+	d = XOR_TABLE(kuz_pil, a, b, 1);				\
 
-#ifdef HAVE_SSE2
-	#define X(a, k)							\
-		a = _mm_xor_si128(a, *((__m128i *) &k))
-#else
-	#define X(a, k)							\
-		a[0] ^= k[0];						\
-		a[1] ^= k[1]
-#endif
+#define IL(a, b, c, d)							\
+	c = XOR_TABLE(kuz_l_inv, a, b, 0);				\
+	d = XOR_TABLE(kuz_l_inv, a, b, 1);				\
 
-#define SL(a, b)							\
-	XOR_LOOKUP(T_SL, a, b)
+#define ISL(a, b, c, d)							\
+	c = XOR_TABLE(kuz_pil_inv, a, b, 0);				\
+	d = XOR_TABLE(kuz_pil_inv, a, b, 1);				\
 
-#define IL(a, b)							\
-	XOR_LOOKUP(T_IL, a, b)
-
-#define ISL(a, b)							\
-	XOR_LOOKUP(T_ISL, a, b)
-
-#define IS(a) {								\
-	unsigned char *c = ((unsigned char *) &a);			\
-	c[0] = kuznyechik_pi_inv[c[0]];					\
-	c[1] = kuznyechik_pi_inv[c[1]];					\
-	c[2] = kuznyechik_pi_inv[c[2]];					\
-	c[3] = kuznyechik_pi_inv[c[3]];					\
-	c[4] = kuznyechik_pi_inv[c[4]];					\
-	c[5] = kuznyechik_pi_inv[c[5]];					\
-	c[6] = kuznyechik_pi_inv[c[6]];					\
-	c[7] = kuznyechik_pi_inv[c[7]];					\
-	c[8] = kuznyechik_pi_inv[c[8]];					\
-	c[9] = kuznyechik_pi_inv[c[9]];					\
-	c[10] = kuznyechik_pi_inv[c[10]];				\
-	c[11] = kuznyechik_pi_inv[c[11]];				\
-	c[12] = kuznyechik_pi_inv[c[12]];				\
-	c[13] = kuznyechik_pi_inv[c[13]];				\
-	c[14] = kuznyechik_pi_inv[c[14]];				\
-	c[15] = kuznyechik_pi_inv[c[15]];				\
+#define IS(a, b) {							\
+	a = INV_PI(a);							\
+	b = INV_PI(b);							\
 }
 
+#define FK(start, end) {						\
+	for (i = start; i <= end; i++) {				\
+		c[0] = a[0] ^ kuz_c[i - 1][0];				\
+		c[1] = a[1] ^ kuz_c[i - 1][1];				\
+		d[0] = XOR_TABLE(kuz_pil, c[0], c[1], 0);		\
+		d[1] = XOR_TABLE(kuz_pil, c[0], c[1], 1);		\
+									\
+		d[0] ^= b[0];						\
+		d[1] ^= b[1];						\
+		b[0] = a[0];						\
+		b[1] = a[1];						\
+		a[0] = d[0];						\
+		a[1] = d[1];						\
+	}								\
+}
 
-/******************************************************************************/
+/* ────────────────────────────────────────────────────────────────────────── */
 
 int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 		       const unsigned char *key)
 {
-	unsigned int i, j;
-	uint64_t x[4], z[2];
-	unsigned char c[16];
+	uint64_t a[2], b[2], c[2], d[2];
+	uint64_t *ek = subkeys->ek;
+	unsigned int i;
 
-	if (kuznyechik_initialized == 0)
-		kuznyechik_initialize_tables();
-
-	kuznyechik_wipe_key(subkeys);
-
-	x[0] = ((uint64_t *) key)[0];
-	x[1] = ((uint64_t *) key)[1];
-	x[2] = ((uint64_t *) key)[2];
-	x[3] = ((uint64_t *) key)[3];
-
-	subkeys->ek[0][0] = x[0];
-	subkeys->ek[0][1] = x[1];
-	subkeys->ek[1][0] = x[2];
-	subkeys->ek[1][1] = x[3];
-
-	for (i = 1; i <= 32; i++) {
-		((uint64_t *) c)[0] = 0;
-		((uint64_t *) c)[1] = 0;
-		c[15] = i;
-		kuznyechik_linear(c);
-
-		z[0] = x[0] ^ ((uint64_t *) c)[0];
-		z[1] = x[1] ^ ((uint64_t *) c)[1];
-
-		for (j = 0; j < 16; j++)
-			((unsigned char *) z)[j]
-				= kuznyechik_pi[((unsigned char *) z)[j]];
-
-		kuznyechik_linear((unsigned char *) z);
-
-		z[0] ^= x[2];
-		z[1] ^= x[3];
-
-		x[2] = x[0];
-		x[3] = x[1];
-
-		x[0] = z[0];
-		x[1] = z[1];
-
-		if ((i & 7) == 0) {
-			subkeys->ek[(i >> 2)][0] = x[0];
-			subkeys->ek[(i >> 2)][1] = x[1];
-			subkeys->ek[(i >> 2) + 1][0] = x[2];
-			subkeys->ek[(i >> 2) + 1][1] = x[3];
-		}
+	if (kuznyechik_initialised == false) {
+		kuznyechik_initialise_tables();
 	}
 
-	for (i = 0; i < 10; i++) {
-		subkeys->dk[i][0] = subkeys->ek[i][0];
-		subkeys->dk[i][1] = subkeys->ek[i][1];
-		if (i)
-			kuznyechik_linear_inv((unsigned char *) &subkeys->dk[i]);
+	a[0] = ((uint64_t *) key)[0];
+	a[1] = ((uint64_t *) key)[1];
+	b[0] = ((uint64_t *) key)[2];
+	b[1] = ((uint64_t *) key)[3];
+
+	ek[0] = a[0];
+	ek[1] = a[1];
+	ek[2] = b[0];
+	ek[3] = b[1];
+
+	FK(1, 8);
+
+	ek[4] = a[0];
+	ek[5] = a[1];
+	ek[6] = b[0];
+	ek[7] = b[1];
+
+	FK(9, 16);
+
+	ek[8]  = a[0];
+	ek[9]  = a[1];
+	ek[10] = b[0];
+	ek[11] = b[1];
+
+	FK(17, 24);
+
+	ek[12] = a[0];
+	ek[13] = a[1];
+	ek[14] = b[0];
+	ek[15] = b[1];
+
+	FK(25, 32);
+
+	ek[16] = a[0];
+	ek[17] = a[1];
+	ek[18] = b[0];
+	ek[19] = b[1];
+
+	/*
+	 * Keys for decryption - with applied L⁻¹().
+	 */
+	for (i = 0; i < 20; i += 2) {
+		if (i == 0) {
+			subkeys->dk[i + 0] = ek[i + 0];
+			subkeys->dk[i + 1] = ek[i + 1];
+			continue;
+		}
+
+		a[0] = ek[i + 0];
+		a[1] = ek[i + 1];
+		subkeys->dk[i + 0] = XOR_TABLE(kuz_l_inv, a[0], a[1], 0);
+		subkeys->dk[i + 1] = XOR_TABLE(kuz_l_inv, a[0], a[1], 1);
 	}
 
 	return 0;
@@ -473,82 +483,113 @@ int kuznyechik_set_key(struct kuznyechik_subkeys *subkeys,
 void kuznyechik_encrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 			const unsigned char *in)
 {
-	#ifdef HAVE_SSE2
-	__m128i a, b;
-	__m128i addr1, addr2;
-	#else
-	uint64_t a[2], b[2];
-	#endif
+	uint64_t a, b, c, d, *k = subkeys->ek;
 
-	LOAD(a, in);
+	a = ((uint64_t *) in)[0];
+	b = ((uint64_t *) in)[1];
 
-	X(a, subkeys->ek[0]);
-	SL(a, b);
-	X(b, subkeys->ek[1]);
-	SL(b, a);
-	X(a, subkeys->ek[2]);
-	SL(a, b);
-	X(b, subkeys->ek[3]);
-	SL(b, a);
-	X(a, subkeys->ek[4]);
-	SL(a, b);
-	X(b, subkeys->ek[5]);
-	SL(b, a);
-	X(a, subkeys->ek[6]);
-	SL(a, b);
-	X(b, subkeys->ek[7]);
-	SL(b, a);
-	X(a, subkeys->ek[8]);
-	SL(a, b);
-	X(b, subkeys->ek[9]);
+	/* round 1 */
+	X(a, b, k[0], k[1]);
+	SL(a, b, c, d);
 
-	STORE(out, b);
+	/* round 2 */
+	X(c, d, k[2], k[3]);
+	SL(c, d, a, b);
+
+	/* round 3 */
+	X(a, b, k[4], k[5]);
+	SL(a, b, c, d);
+
+	/* round 4 */
+	X(c, d, k[6], k[7]);
+	SL(c, d, a, b);
+
+	/* round 5 */
+	X(a, b, k[8], k[9]);
+	SL(a, b, c, d);
+
+	/* round 6 */
+	X(c, d, k[10], k[11]);
+	SL(c, d, a, b);
+
+	/* round 7 */
+	X(a, b, k[12], k[13]);
+	SL(a, b, c, d);
+
+	/* round 8 */
+	X(c, d, k[14], k[15]);
+	SL(c, d, a, b);
+
+	/* round 9 */
+	X(a, b, k[16], k[17]);
+	SL(a, b, c, d);
+
+	/* round 10 */
+	X(c, d, k[18], k[19]);
+	SL(c, d, a, b);
+
+	((uint64_t *) out)[0] = c;
+	((uint64_t *) out)[1] = d;
 }
 
 void kuznyechik_decrypt(struct kuznyechik_subkeys *subkeys, unsigned char *out,
 			const unsigned char *in)
 {
-	#ifdef HAVE_SSE2
-	__m128i a, b;
-	__m128i addr1, addr2;
-	#else
-	uint64_t a[2], b[2];
-	#endif
+	uint64_t a, b, c, d, *k = subkeys->dk;
 
-	LOAD(a, in);
+	a = ((uint64_t *) in)[0];
+	b = ((uint64_t *) in)[1];
 
-	IL(a, b);
-	X(b, subkeys->dk[9]);
-	ISL(b, a);
-	X(a, subkeys->dk[8]);
-	ISL(a, b);
-	X(b, subkeys->dk[7]);
-	ISL(b, a);
-	X(a, subkeys->dk[6]);
-	ISL(a, b);
-	X(b, subkeys->dk[5]);
-	ISL(b, a);
-	X(a, subkeys->dk[4]);
-	ISL(a, b);
-	X(b, subkeys->dk[3]);
-	ISL(b, a);
-	X(a, subkeys->dk[2]);
-	ISL(a, b);
-	X(b, subkeys->dk[1]);
-	IS(b);
-	X(b, subkeys->dk[0]);
+	/* round 1 */
+	IL(a, b, c, d);
+	X(c, d, k[18], k[19]);
 
-	STORE(out, b);
+	/* round 2 */
+	ISL(c, d, a, b);
+	X(a, b, k[16], k[17]);
+
+	/* round 3 */
+	ISL(a, b, c, d);
+	X(c, d, k[14], k[15]);
+
+	/* round 4 */
+	ISL(c, d, a, b);
+	X(a, b, k[12], k[13]);
+
+	/* round 5 */
+	ISL(a, b, c, d);
+	X(c, d, k[10], k[11]);
+
+	/* round 6 */
+	ISL(c, d, a, b);
+	X(a, b, k[8], k[9]);
+
+	/* round 7 */
+	ISL(a, b, c, d);
+	X(c, d, k[6], k[7]);
+
+	/* round 8 */
+	ISL(c, d, a, b);
+	X(a, b, k[4], k[5]);
+
+	/* round 9 */
+	ISL(a, b, c, d);
+	X(c, d, k[2], k[3]);
+
+	/* round 10 */
+	IS(c, d);
+	X(c, d, k[0], k[1]);
+
+	((uint64_t *) out)[0] = c;
+	((uint64_t *) out)[1] = d;
 }
 
 void kuznyechik_wipe_key(struct kuznyechik_subkeys *subkeys)
 {
-	int i;
+	unsigned int i;
 
-	for (i = 9; i >= 0; i--) {
-		subkeys->ek[i][0] = 0x0000000000000000;
-		subkeys->ek[i][1] = 0x0000000000000000;
-		subkeys->dk[i][0] = 0x0000000000000000;
-		subkeys->dk[i][1] = 0x0000000000000000;
+	for (i = 0; i < 20; i++) {
+		subkeys->ek[i] = 0;
+		subkeys->dk[i] = 0;
 	}
 }

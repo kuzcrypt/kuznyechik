@@ -1,44 +1,35 @@
 Kuznyechik - Russian 128-bit Block Cipher
-=========================================
+═════════════════════════════════════════
+This is an implementation of Kuznyechik, the 128-bit block cipher used as
+a national standard of the Russian Federation and described in ГОСТ Р
+34.12-2015, ГОСТ 34.12-2018 and RFC 7801. It has been implemented
+according to the reference document:
 
-There are many implementations of Kuznyechik cipher on the Internet.
-We have tested most of these and compared their performance as well
-as some other important attributes (SIMD optimization, readability,
-etc.). With this knowledge having gained, we decided to implement
-a new implementation combining two major attributes: maximal speed
-and good readability.
-
-This version is mostly based on Dr. Markku-Juhani O. Saarinen's code
-that is available at:
-
-    https://github.com/mjosaarinen/kuznechik
-
-However, his implementation did not contain an optimized native 64-bit
-version without SIMD optimizations. Since we wanted to have a portable
-implementation that could be run even on CPUs without SSE instructions,
-we needed to add it.
-
-The native 64-bit version has been inspired by code used in VeraCrypt,
-and originally written by "kerukuro":
-
-    https://github.com/veracrypt/veracrypt
+  https://tc26.ru/standard/gost/GOST_R_3412-2015.pdf (на русском)
 
 
-Optimization
-------------
-This code contains two distinct implementations at once. You can
-determine what version will be used by defining `HAVE_SSE2` macro.
-Both versions, however, are optimized by using large precomputed
-lookup tables.
+The origin of this implementation goes far back in history. Its first
+version has been based on the code written by Dr. Markku-Juhani O.
+Saarinen (still accessible: https://github.com/mjosaarinen/kuznechik).
+Our changes in the initial version included optimised portable 64-bit
+code and, as an option, code optimised for CPUs with SSE extensions.
 
-  - If the macro is not defined, a portable version working with 64-bit
-    integers will be used.
+The SSE version was supposed to be faster and it likely was at the time
+of writing the code. But modern compilers have their own ways how to
+optimise the compiled code and drastic manual optimisations may actually
+prove detrimental to performance. The following benchmark speaks for
+itself:
 
-  - In the case that your CPU supports SSE2 instructions, you can enable
-    SSE2 optimization by defining the `HAVE_SSE2` macro. It increases
-    performance dramatically.
+  kuznyechik-kuzcrypt-ref ........... 152.684 MB/s (this version)
+  kuznyechik-kuzcrypt-old-ref ....... 150.274 MB/s
+  kuznyechik-kuzcrypt-old-sse ....... 148.737 MB/s
+  kuznyechik-oliynykov-ref .......... 138.780 MB/s
+  kuznyechik-saarinen-sse ........... 130.230 MB/s
+  kuznyechik-veracrypt-ref .......... 148.082 MB/s
+  kuznyechik-veracrypt-sse .......... 142.895 MB/s
 
+Generated with: https://github.com/kuzcrypt/kuznyechik-bench
 
-Notes
------
-2018-11-15 - tested on virtual big-endian machine (powerpc in qemu).
+For this objective reason, we decided to remove the ‘optimised’ version
+and keep the code portable. All versions were compiled with gcc and with
+-Ofast turned on.
